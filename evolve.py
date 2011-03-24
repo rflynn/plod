@@ -93,9 +93,11 @@ class Type:
 		elif type(v) in (int,float):
 			return Type.NUM
 		elif type(v) == tuple:
+			# tuples are assumed heterogenous, describe each item
 			return tuple(Type.describe(x) for x in v)
 		elif type(v) == list:
-			return [Type.describe(x) for x in v]
+			# lists are assumed homogenous, describe first item only
+			return [Type.describe(v[0])]
 	@staticmethod
 	def repr(t):
 		if t == Type.A:
@@ -147,7 +149,8 @@ class Op:
 		return '%s %s%s' % (Type.repr(self.outtype), self.name, Type.repr(self.intype))
 	# given a set of all possible available types from parameters and other function's output types, see if we match
 	def inTypesMatch(self, availableTypes):
-		print('inTypesMatch(intypeset=',self.intypeset,',availableTypes=',availableTypes,')')
+		# FIXME: this is overly simplistic regarding lambda/FUNs
+		#print('inTypesMatch(intypeset=',self.intypeset,',availableTypes=',availableTypes,')')
 		return self.intypeset <= availableTypes
 
 Id = Op('id', Type.A, (Type.A,), lambda x: '%s' % (x,))
@@ -162,13 +165,14 @@ Ops = (
 	Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s - %s)' % (x,y)),
 	Op('mul', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s * %s)' % (x,y)),
 	Op('div', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s / %s)' % (x,y)),
+	Op('mod', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s %% %s)' % (x,y)),
 	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s,%s)' % (x,y)),
 	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s,%s)' % (x,y)),
 	Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	lambda x,y,z:'(%s if %s else %s)' % (y,x,z)),
 	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)),
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: 'list(map(%s, %s))' % (x,y)),
 	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),	lambda x,y: 'list(filter(%s, %s))' % (x,y)),
-	Op('len', Type.NUM,	([Type.A],),				lambda x:    'len(%s)' % (x,)),
+	#Op('len', Type.NUM,	([Type.A],),				lambda x:    'len(%s)' % (x,)),
 )
 
 OpOuttypes = Type.make_set([o.outtype for o in Ops])
@@ -183,7 +187,7 @@ class Lambda(Op):
 		return 'lambda %s:%s' % (','.join(sorted(self.params.keys())), expr)
 
 # pre-calculate logarithm
-Log = tuple([0] + [math.log(n) for n in range(1, 100)])
+Log = tuple([0, math.log(2)] + [math.log(n) for n in range(2, 100)])
 
 """
 Expression is a value that applies a function to parameters to arrive at its value
@@ -193,8 +197,8 @@ class Expr(Value):
 	# expression may be arbitrarily complex, but may only reference parameters, pre-defined Ops and random literals
 	# @params dict{varname : type}
 	# @outtype is a realized Type.X type, not a TypeVar.
-	def __init__(self, params, outtype, depth=1, maxdepth=3):
-		print('Expr(params=',params,'outtype=',outtype,')')
+	def __init__(self, params, outtype, depth=1, maxdepth=5):
+		#print('Expr(params=',params,'outtype=',outtype,')')
 		self.params = copy(params)
 		self.outtype = copy(outtype)
 
@@ -205,7 +209,7 @@ class Expr(Value):
 			if type(inp[0]) == list and type(outp) == list:
 				inp = (inp[0][0],)
 				outp = outp[0]
-			print('created lambda inp=%s outp=%s' % (inp, outp))
+			#print('created lambda inp=%s outp=%s' % (inp, outp))
 			# reduce parameters to those being passed specifically, and rename for use within the function
 			self.params = dict(zip(['x','y','z'], inp))
 			self.op = Lambda(outp, inp, self.params)
@@ -214,7 +218,7 @@ class Expr(Value):
 
 		# figure out all possible variables and ops that provide type 'outtype'
 		opt = [o for o in Ops if Type.match(o.outtype, outtype)]
-		print('opt=',opt)
+		#print('opt=',opt)
 		r = random.random()
 		if opt == [] or depth == maxdepth or r < Log[depth]/Log[maxdepth]:
 			pt = Expr.params_by_type(params, outtype)
@@ -229,8 +233,7 @@ class Expr(Value):
 					self.exprs = [[Expr(params, t, depth+1) for t in self.outtype]]
 			else:
 				# random parameter
-				print('outtype=',outtype)
-				print('pt=',pt)
+				#print('outtype=',outtype,'pt=',pt)
 				self.exprs = [random.choice(pt)]
 		else:
 			# only choose operations whose output matches our input and whose input
@@ -242,14 +245,18 @@ class Expr(Value):
 			# have any explicitly bool vars, but plenty of functions produce them
 			# TODO: this will have to change to accomodate TypeVars
 			okops = [o for o in opt if o.inTypesMatch(availableTypes)]
+			if okops == []:
+				print('availableTypes=',availableTypes)
+				assert False
 			self.op = deepcopy(random.choice(okops))
 			tvtypes = self.enforceTypeVars(outtype)
-			print('self.op=',self.op, 'outtype=',outtype)
-			print('tvtypes=',tvtypes)
+			#print('self.op=',self.op, 'outtype=',outtype,'tvtypes=',tvtypes)
 			self.exprs = [Expr(params, it, depth+1) for it in self.op.intype]
 
 	def __repr__(self):
 		return self.op.repr(*self.exprs)
+	def __lt__(self, other):
+		return 1
 
 	# once an op is chosen, we must choose specific types for any TypeVars present (based on params)
 	# also, we must respect the outtype if it is a TypeVar
@@ -324,6 +331,11 @@ class Expr(Value):
 		else:
 			return sum([Expr.magic_numbers(x) for x in e.exprs])
 
+# Given an existing Expr, mutate a section of it
+class Mutant(Expr):
+	def __init__(self, parent, sym, outtype, depth=1, maxdepth=5, mutation=0.3):
+		pass
+
 def test_params_by_type():
 	assert unittest(Expr.params_by_type,
 			[([],				({},				Type.NUM)),
@@ -364,9 +376,89 @@ we'll also need custom datatype:Date and methods
 for the Netflix challenge it would be even more challenging...
 """
 
+WorstScore = float('inf')
+
+import sys
+import traceback
+
+# run Expr e(data), score the result
+def run_score(p, data, fscore):
+	try:
+		score = 0
+		for d in data:
+			foo = d # FIXME: tied to sym{} in evolve()
+			res = eval(str(p)) # should read 'foo' from current binding, messy
+			score += fscore(d, res)
+	except:
+		#print(str(p))
+		#traceback.print_tb(sys.exc_info())
+		# whoops, blew up. shouldn't happen, but hey.
+		# give it the worst possible score and keep going
+		score = WorstScore
+	#print('score=',score)
+	return score
+
+# run each candidate against the data, score the results, keep the least-awful scoring functions
+def evaluate(population, data, fscore):
+	keep = []
+	for p in population:
+		score = run_score(p, data, fscore)
+		if score != WorstScore:
+			# retain 3 scores. lower is always better, and sorted() works that way too
+			keep.append((score, Expr.size(p), Expr.magic_numbers(p), p))
+	return sorted(keep)
+
+def evolve(data, score, types=None, popsize=10000, maxdepth=10, popkeep=2, mutation=0.7, deadend=0):
+	# sanity check types and ranges
+	assert type(data[0]) == tuple
+	assert type(score) == type(lambda _:_)
+	assert 2 <= maxdepth < len(Log)
+	assert 100 <= popsize <= 1e6
+	assert 1 <= popkeep
+	# initialize defaults
+	if types == None:
+		intype,outtype = Type.describe(data[0][0])
+	else:
+		intype,outtype = types
+	sym = {'foo':intype} # FIXME: tied to run_score()
+	print('sym=',sym)
+	pop = []
+	gencnt = 0
+	# find at least one func that doesn't totally suck
+	while pop == [] or pop[0][0] > 0 or pop[0][2] > 1:
+		population = [Expr(sym, outtype, maxdepth=maxdepth) for _ in range(0, popsize)]
+		keep = evaluate(population, data, score)[:popkeep]
+		pop = sorted(pop + keep)[:popkeep]
+		print(pop)
+		print('gen %d score=%.0f %s' % \
+			(gencnt, pop[0][0] if pop != [] else float('inf'), str(pop[0][3]) if pop != [] else None))
+		gencnt += 1
+
+	print('done', pop[0])
+	return pop[0]
+
 if __name__ == '__main__':
 	test()
 	sym = {'a':[(Type.NUM,Type.NUM,Type.NUM)]}
 	a = [(1,2,3),(4,5,6)]
-	e = [Expr(sym, [Type.NUM]) for _ in range(0, 100)]
+	e = [Expr(sym, Type.NUM) for _ in range(0, 10)]
+	# NOTE: it would be cleaner to wrap everything in a lambda() so we could pass params in directly
+	
+	evolve(
+		[
+			# input     expected
+			# FIXME: it can't handle [(...)] for some reason...
+			((0,0,0), 0),
+			((0,1,2), 2),
+			((2,3,4), 4),
+			((3,4,100), 100),
+		],
+		# scoring function run on each 
+		lambda data,res: abs(max(data[0]) - res),
+		# in type                        # output type
+		((Type.NUM,Type.NUM,Type.NUM), Type.NUM),
+		popsize=3000,
+		maxdepth=10,
+		popkeep=5
+	)
 
