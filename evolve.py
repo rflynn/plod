@@ -409,25 +409,17 @@ class Expr(Value):
 
 		if self.op.name == 'map':
 			# [x for x in y] -> y
-			#print('map exprs[0]=%s paramkeys=%s list=%s' % (self.exprs[0],','.join(self.exprs[0].op.paramkeys), self.exprs[1]))
 			if str(self.exprs[0]) == ','.join(self.exprs[0].op.paramkeys):
-				#print('self=',self.exprs[1])
-				# FIXME: logic is correct but this doesn't work. why not?
 				self = self.exprs[1]
-
 		elif self.op.name == 'filter':
 			#print('filter exprs[0]=%s' % (self.exprs[0],))
 			v = str(self.exprs[0])
 			if v == 'True':
 				# filter(True, x) -> x
-				# FIXME: logic is correct but this doesn't work. why not?
-				#self = self.exprs[1]
-				return self.exprs[1]
+				self = self.exprs[1]
 			elif v == 'False':
 				# filter(False, x) -> []
-				# FIXME: logic is correct but this doesn't work. why not?
 				self.op, self.exprs = Id, [Value(self.exprs[1].type, [])]
-
 		elif self.op.name in ('add','sub','mul','div'):
 			try:
 				# try to reduce numerical expressions
@@ -462,7 +454,7 @@ class Expr(Value):
 						self.op, self.exprs = Id, [Value(self.type, 1)]
 				if p is not None:
 					self.op, self.exprs = Id, [Value(self.type, self.exprs[p])]
-		elif self.op.name in ('eq','lte','gte'):
+		elif self.op.name in ('eq','gte','gte'):
 			# x == x -> True
 			# x <= x -> True
 			# x >= x -> True
@@ -481,6 +473,11 @@ class Expr(Value):
 				self = self.exprs[1]
 			elif v == False:
 				self = self.exprs[2]
+		elif self.op.name in ('or','and'):
+			# x or x -> x
+			# x and x -> x
+			if str(self.exprs[0]) == str(self.exprs[1]):
+				self = self.exprs[0]
 		elif self.op.name == 'sqrt':
 			# sqrt(0) -> 0
 			# sqrt(1) -> 1
@@ -490,11 +487,25 @@ class Expr(Value):
 			# log(1) -> 0
 			if str(self.exprs[0]) == '1':
 				self.op, self.exprs = Id, [Value(Type.NUM, 0)]
+		elif self.op.name == 'abs':
+			# abs(positive_invariant) -> positive_invariant
+			try:
+				n = float(str(self.exprs[0]))
+				# if we don't blow up...
+				if n >= 0.0:
+					self = self.exprs[0]
+			except ValueError:
+				pass
 		elif self.op.name == 'len':
 			# realize len([...])
 			e0 = self.exprs[0]
 			if type(e0) == Expr and e0.op is Id and type(e0.exprs[0]) == list:
 				self.op, self.exprs = Id, [Value(Type.NUM, len(e0.exprs[0]))]
+		elif self.op.name in ('min','max'):
+			# min(x,x) -> x
+			# max(x,x) -> x
+			if str(self.exprs[0]) == str(self.exprs[1]):
+				self = self.exprs[0]
 		elif self.op.name == 'sum':
 			# sum([x]) == x
 			e0 = self.exprs[0]
