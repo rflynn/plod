@@ -700,20 +700,18 @@ def evaluate(population, data, fscore, gencnt):
 class Reporter:
 	def __init__(self):
 		self.msg = ''
-		self.gencnt = []
+		self.scores = [WorstScore] # NOTE: sorted() apparently isn't stable, so we need to keep track of score, not just gencnt
 	def show(self, pop, gencnt):
-		self.gencnt.append(gencnt)
-		if gencnt != 0 and ((pop != [] and pop[0].gencnt == gencnt) or self.gencnt == [0,1]):
-			sys.stdout.write('\n')
-			if len(self.gencnt) > 1:
-				self.gencnt.pop(0)
-		elif self.gencnt[-1] != 0: # remove previous line
-			sys.stdout.write('\b' * len(self.msg))
-			self.gencnt.pop()
+		if pop != []:
+			if pop[0].score < self.scores[-1] and gencnt != 0:
+				sys.stdout.write('\n')
+				self.scores.append(pop[0].score)
+			else: # otherwise, remove previous line
+				sys.stdout.write('\b' * len(self.msg))
 		t = time.localtime()
-		self.msg = '%04d-%02d-%02d-%02d:%02d:%02d gen %2u %s %s' % \
+		self.msg = '%04d-%02d-%02d-%02d:%02d:%02d gen %4u %s %s' % \
 			(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
- 			gencnt, '' if pop == [] else '#' * round(math.log(pop[0].score+1)),
+			gencnt, '' if pop == [] else '#' * round(math.log(pop[0].score+1)),
 			'' if pop == [] else pop[0])
 		sys.stdout.write(self.msg)
 		sys.stdout.flush()
