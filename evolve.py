@@ -653,7 +653,7 @@ def run_score(p, data, fscore):
 			#print('d=%s res=%s -> %s' %(d,res,fs))
 			score += fs
 	except:
-		# whoops, blew up. shouldn't happen, but hey.
+		# whoops, blew up. could be /0, %0, log(0), etc
 		# assign worst possible score, keep going
 		score = WorstScore
 	#print('score=',score)
@@ -718,7 +718,7 @@ class Reporter:
 
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
-def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=10, popkeep=2, deadend=0):
+def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=5000, maxdepth=10, popkeep=2, deadend=0):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
 	assert type(score) == type(lambda _:_)
@@ -758,7 +758,7 @@ if __name__ == '__main__':
 			# expect: foo
 			(10, 10),
 			(1e6, 1e6),
-		], popsize=1000)
+		], popsize=100)
 
 	evolve( [
 			# expect: ((foo+foo)+1) or ((foo*2)+1)
@@ -766,20 +766,13 @@ if __name__ == '__main__':
 			#         (foo + (1 + foo))
 			(10, 21),
 			(1e6, 1e6*2+1),
-		], popsize=2000)
+		], popsize=500)
 
 	evolve( [ # ensure we can produce tuple results
 			# expect: (foo,)
 			(100, (100,)),
 			(1000, (1000,)),
-		], maxdepth=3, score=lambda d,res:abs(d[1][0]-res[0]))
-
-	evolve( [ # extract tuple members and re-wrap them
-			# expect: (foo[0]+1, foo[0]+foo[0]+2)
-			# got: ((foo[0] + 1), (2 + (foo[0] + foo[0])))
-			((100,), (101,202)),
-			((1000,), (1001,2002)),
-		], maxdepth=3, score=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
+		], popsize=500, maxdepth=3, score=lambda d,res:abs(d[1][0]-res[0]))
 
 	evolve( [
 			# basic filter
@@ -792,7 +785,7 @@ if __name__ == '__main__':
 			# got: sum([sum([x[0]]) for x in foo])
 			([(10,1)], 10),
 			([(20,1)], 20),
-		], popsize=3000)
+		], popsize=300)
 
 	evolve( [
 			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
@@ -802,7 +795,14 @@ if __name__ == '__main__':
 			([(5,0,2,3)], 2.5),
 			([(50,0,50,0)], 25),
 			([(2,0,0,2)], 1),
-		], popsize=5000)
+		])
+
+	evolve( [ # extract tuple members and re-wrap them
+			# expect: (foo[0]+1, foo[0]+foo[0]+2)
+			# got: ((foo[0] + 1), (2 + (foo[0] + foo[0])))
+			((100,), (101,202)),
+			((1000,), (1001,2002)),
+		], maxdepth=3, score=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
 
 	evolve( [
 			# expect: sum([x[0]*x[1]+x[2] for x in foo])
