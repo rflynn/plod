@@ -15,12 +15,13 @@ slowest features:
 
 """
 
+import sys
+import copy
+import time
 import random
-from test import unittest
-from copy import copy,deepcopy
 import math
 from math import sqrt,log
-import time
+from test import unittest # custom
 
 class Type:
 	A     = 0
@@ -213,8 +214,8 @@ Ops = (
 	Op('len', Type.NUM,	([Type.A],),			lambda x:    'len(%s)' % (x,)),
 	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)),
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)),
-	Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
-		lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
+	#Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
+		#lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
 		#[item for sublist in l for item in sublist]
 	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
 		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
@@ -266,8 +267,8 @@ class Expr(Value):
 		#print('Expr(params=',params,'outtype=',outtype,')')
 		self.depth = depth
 		self.maxdepth = maxdepth
-		self.params = copy(params)
-		self.type = copy(outtype)
+		self.params = copy.copy(params)
+		self.type = copy.copy(outtype)
 		self.exprs = []
 
 		# special case for lambdas
@@ -322,7 +323,7 @@ class Expr(Value):
 				print('outtype=',outtype,'opt=',opt,'params=',params)
 				print('paramtypes=',paramtypes,'OpOuttypes=',OpOuttypes,'availableTypes=',availableTypes)
 				assert False
-			self.op = deepcopy(random.choice(okops))
+			self.op = copy.deepcopy(random.choice(okops))
 			tvtypes = self.enforceTypeVars(outtype)
 			#print('self.op=',self.op, 'outtype=',outtype,'tvtypes=',tvtypes)
 			self.exprs = [Expr(params, it, depth+1) for it in self.op.intype]
@@ -340,7 +341,7 @@ class Expr(Value):
 				# x(y,z) -> e(x,a)
 				i = random.randint(0, len(e.exprs)-1)
 				if (hasattr(e.exprs[i],'type') and e.exprs[i].type == self.type) or type(e.exprs[i]) == self.type:
-					e.exprs[i] = deepcopy(self)
+					e.exprs[i] = copy.deepcopy(self)
 			elif r < mutation * (2/3):
 				# replace self with parameter
 				# x(y,z) -> y
@@ -437,7 +438,7 @@ class Expr(Value):
 					self.op, self.exprs = Id, [Value(self.type, x)]
 			except:
 				e0, e1 = str(self.exprs[0]), str(self.exprs[1])
-				p = None # which parameter to reduce to? take action only iff 0,1
+				p = None # which parameter to reduce to? take action iff in (0,1)
 				if self.op.name == 'add':
 					if e0 == '0':
 						p = 0
@@ -460,19 +461,19 @@ class Expr(Value):
 						p = 0
 					elif e0 == e1:
 						self.op, self.exprs = Id, [Value(self.type, 1)]
-					if p is not None:
-						self.op, self.exprs = Id, [Value(self.type, self.exprs[p])]
-		elif self.op.name in ('gt','lt'):
-			# x < x -> False
-			# x > x -> False
-			if str(self.exprs[0]) == str(self.exprs[1]):
-				self.op, self.exprs = Id, [Value(Type.BOOL, False)]
+				if p is not None:
+					self.op, self.exprs = Id, [Value(self.type, self.exprs[p])]
 		elif self.op.name in ('eq','lte','gte'):
 			# x == x -> True
 			# x <= x -> True
 			# x >= x -> True
 			if str(self.exprs[0]) == str(self.exprs[1]):
 				self.op, self.exprs = Id, [Value(Type.BOOL, True)]
+		elif self.op.name in ('gt','lt'):
+			# x < x -> False
+			# x > x -> False
+			if str(self.exprs[0]) == str(self.exprs[1]):
+				self.op, self.exprs = Id, [Value(Type.BOOL, False)]
 		elif self.op.name == 'if':
 			# if(True,x,y) -> x
 			# if(False,x,y) -> y
@@ -504,7 +505,7 @@ class Expr(Value):
 				elif len(e0.exprs[0]) == 0:
 					self.op, self.exprs = Id, [Value(Type.NUM, 0)]
 			# TODO:...
-			# sum(y[m] for y in foo) + sum(y[n] for y in foo) -> sum(y[m]+y[n] for y in foo)
+			# sum(x[y] for x in foo) + sum(x[z] for x in foo) -> sum(x[y]+x[z] for y in foo)
 		return self
 
 	def __repr__(self):
@@ -607,7 +608,7 @@ def test_canonicalize():
 
 def test_map_flatten():
 	e = tuple(Expr.canonicalize(Expr((Variable([[Type.NUM]],'a'),),[Type.NUM], maxdepth=4)) for _ in range(0, 10))
-	print('map-flatten=',e)
+	#print('map-flatten=',e)
 
 def test():
 	test_type_describe()
@@ -632,9 +633,6 @@ for the Netflix challenge it would be even more challenging...
 
 WorstScore = float('inf')
 
-import sys
-import traceback
-
 # run Expr e(data), score the result
 def run_score(p, data, fscore):
 	try:
@@ -651,6 +649,7 @@ def run_score(p, data, fscore):
 	#print('score=',score)
 	return score
 
+# Expr p × population rankings
 class KeepScore:
 	def __init__(self, p, score, gencnt):
 		self.p = p
@@ -659,8 +658,8 @@ class KeepScore:
 		self.size = Expr.size(p)
 		self.magic_numbers = Expr.magic_numbers(p)
 	def __repr__(self):
-		return 'score=%g size=%u magic=%u gencnt=%u %s' % \
-			(self.score, self.size, self.magic_numbers, self.gencnt, self.p)
+		return 'score=%g size=%u magic=%u %s' % \
+			(self.score, self.size, self.magic_numbers, self.p)
 	def __lt__(self, other):
 		if self.score != other.score:
 			return self.score < other.score	
@@ -687,6 +686,30 @@ def evaluate(population, data, fscore, gencnt):
 					pass
 	return sorted(keep)
 
+# show our progress as we go
+class Reporter:
+	def __init__(self):
+		self.msg = ''
+		self.gencnt = []
+	def show(self, pop, gencnt):
+		self.gencnt.append(gencnt)
+		if gencnt != 0 and ((pop != [] and pop[0].gencnt == gencnt) or self.gencnt == [0,1]):
+			sys.stdout.write('\n')
+			if len(self.gencnt) > 1:
+				self.gencnt.pop(0)
+		elif self.gencnt[-1] != 0: # remove previous line
+			sys.stdout.write('\b' * len(self.msg))
+			self.gencnt.pop()
+		t = time.localtime()
+		self.msg = '%04d-%02d-%02d-%02d:%02d:%02d gen %2u %s %s' % \
+			(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
+ 			gencnt, '' if pop == [] else '#' * round(math.log(pop[0].score+1)),
+			'' if pop == [] else pop[0])
+		sys.stdout.write(self.msg)
+		sys.stdout.flush()
+
+# where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
+# transform data[n][0] -> data[n][1]
 def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=10, popkeep=2, deadend=0):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
@@ -704,26 +727,21 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 	sym = (Variable(intype, 'foo'),)
 	pop = []
 	gencnt = 0
+	r = Reporter()
 
 	# generate/mutate functions, test them, keep the best ones
 	while pop == [] or pop[0].score > 0:
 		if pop == []:
 			population = (Expr(sym, outtype, maxdepth=maxdepth) for _ in range(0, popsize))
 		else:
-			population = (deepcopy(random.choice(pop).p).mutate() for _ in range(0, popsize))
+			population = (copy.deepcopy(random.choice(pop).p).mutate() for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
 		pop = sorted(pop + keep)[:popkeep]
-		if pop != [] and pop[0].gencnt == gencnt:
-			t = time.localtime()
-			print('%04d-%02d-%02d-%02d:%02d:%02d gen %2u %s %s' % \
-				(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
-			 	gencnt, '' if pop == [] else '#' * round(math.log(pop[0].score+1)+0.5), '' if pop == [] else pop[0]))
+		r.show(pop, gencnt)
 		gencnt += 1
 
-	print('done', pop[0])
+	print('\ndone', pop[0])
 	return pop[0]
-
-import profile
 
 if __name__ == '__main__':
 	test()
