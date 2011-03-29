@@ -2,17 +2,12 @@
 # -*- coding: utf-8 -*-
 
 """
-design genetic algorithm framework
+simple genetic algorithm framework
 
-purely functional, immutable variables
-lists are assumed to have homogenous members
-tuples are assumed to have heterogenous members
+given data, evolve transformation
+lists types assumed homogenous
+tuple types assumed homogenous
 support lambda, higher-order functions, TypeVars
-
-slowest features:
-	lots of deepcopy()s for mutations
-	Type.match() called a lot
-
 """
 
 import sys
@@ -190,35 +185,39 @@ class Op:
 		#print(self.name,'inTypesMatch(intype=',self.intype,',availableTypes=',availableTypes,')')
 		return any(Type.match(a, self.intype) for a in availableTypes)
 
+# id(x) -> x. used to wrap a Value/Variable in an Expr
 Id = Op('id', Type.A, (Type.A,), lambda x: str(x))
-# NOTE: at the moment all these functions actually appear to work, I'm just testing various aspects of them
+
+# list of all possible operations
 Ops = (
-	#Op('not', Type.BOOL,	(Type.BOOL,),			lambda x:    '(not %s)' % (x,)),
-	#Op('or',  Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s or %s)' % (x,y)),
-	#Op('and', Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s and %s)' % (x,y)),
-	#Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	lambda x,y,z:'(%s if %s else %s)' % (y,x,z)),
+	Op('not', Type.BOOL,	(Type.BOOL,),			lambda x:    '(not %s)' % (x,)),
+	Op('or',  Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s or %s)' % (x,y)),
+	Op('and', Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s and %s)' % (x,y)),
+	Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	lambda x,y,z:'(%s if %s else %s)' % (y,x,z)),
 	Op('eq',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s == %s)' % (x,y)),
 	Op('gt',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s > %s)' % (x,y)),
 	Op('gte', Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s >= %s)' % (x,y)),
 	Op('add', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s + %s)' % (x,y)),
-	#Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s - %s)' % (x,y)),
+	Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s - %s)' % (x,y)),
 	Op('mul', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s * %s)' % (x,y)),
 	Op('div', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s / %s)' % (x,y)),
-	#Op('pow', Type.NUM,	(Type.NUM, Type.NUM),		lambda x:    '(%s ** %s)' % (x,)),
-	Op('sqrt', Type.NUM,	(Type.NUM, ),			lambda x:    'sqrt(%s)' % (x,)),
-	#Op('log', Type.NUM,	(Type.NUM, ),			lambda x:    'log(%s)' % (x,)),
-	#Op('mod', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s %% %s)' % (x,y)),
-	#Op('abs', Type.NUM,	(Type.NUM,),			lambda x:    'abs(%s)' % (x,)),
-	#Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s,%s)' % (x,y)),
-	#Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s,%s)' % (x,y)),
+	# pow is a CPU sink. whereas all other functions produce output lte their parameters,
+	# modest parameters can generate huge amounts of work, i.e. 
+	#Op('pow', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s ** %s)' % (x,y)),
+	Op('sqrt', Type.NUM,	(Type.NUM,),			lambda x:    'sqrt(%s)' % (x,)),
+	Op('log', Type.NUM,	(Type.NUM,),			lambda x:    'log(%s)' % (x,)),
+	Op('mod', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s %% %s)' % (x,y)),
+	Op('abs', Type.NUM,	(Type.NUM,),			lambda x:    'abs(%s)' % (x,)),
+	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s,%s)' % (x,y)),
+	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s,%s)' % (x,y)),
 	Op('len', Type.NUM,	([Type.A],),			lambda x:    'len(%s)' % (x,)),
 	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)),
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)),
+	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
+		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
 	#Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
 		#lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
 		#[item for sublist in l for item in sublist]
-	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
-		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
 
 	# date/time-related operations
 	# these must be implemented for real analysis
@@ -601,7 +600,7 @@ def test_expr2str():
 
 def test_canonicalize():
 	e = tuple(Expr.canonicalize(Expr((Variable([Type.NUM],'a'),),(Type.NUM,), maxdepth=1)) for _ in range(0, 1000))
-	esf = [e for e in e if 'True' in str(e) or 'False' in str(e)]# or ('x for x in' in str(e) and not 'x for x in a' in str(e))]
+	esf = [e for e in e if 'if True' in str(e) or 'if False' in str(e)]# or ('x for x in' in str(e) and not 'x for x in a' in str(e))]
 	if esf != []:
 		print('non-canonicalized=',esf[0],esf[0].dump())
 		assert esf == []
