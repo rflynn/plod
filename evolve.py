@@ -384,7 +384,6 @@ class Expr(Value):
 	# it is important to potentially preserve existing Exprs because only high-scoring Exprs get mutated, so what we have
 	# isn't too bad in the first place. we must be able to move Expr between levels, replacing operations with their parameters
 	# and vice versa, replacing random invariants
-	# FIXME: somehow mutate() is unable to ever generate correct mutations concerning list types. i have no idea why.
 	def mutate(self, depth, maxdepth):
 		mutation = 0.90
 		r = random.random()
