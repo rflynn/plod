@@ -513,6 +513,7 @@ class Expr(Value):
 					elif e0 == e1:
 						self.op, self.exprs = Id, [Value(self.type, 0)]
 				elif self.op.name == 'mul':
+					# TODO: x * (1 / y) -> x / y
 					if e0 == '1':
 						p = 0
 					elif e1 == '1':
@@ -529,6 +530,13 @@ class Expr(Value):
 						self.op, self.exprs = Id, [Value(self.type, 0)]
 				if p is not None:
 					self.op, self.exprs = Id, [Value(self.type, self.exprs[p])]
+				elif self.op.name in ('add','mul'):
+					# move single invariants in commutative binary operations to the right
+					# 2 + x -> x + 2
+					# 5 * x -> x * 5
+					if self.exprs[0].is_invariant() and not self.exprs[1].is_invariant():
+						self.exprs[0], self.exprs[1] = self.exprs[1], self.exprs[0]
+
 		elif self.op.name in ('eq','gte','gte'):
 			# x == x -> True
 			# x <= x -> True
