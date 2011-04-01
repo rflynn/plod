@@ -7,10 +7,6 @@ simple genetic algorithm framework
 given data, evolve transformation
 lists types assumed homogenous
 tuple types assumed homogenous
-
-TODO:
-	implement multi-generational family tree and associated evolutionary logic
-	serialize/deserialize solutions to sqlite to facilitate long-term runs
 """
 
 import sys
@@ -368,22 +364,6 @@ class Expr(Value):
 			# TODO: break this block out
 			# only choose operations whose output matches our input and whose input
 			# we can possibly supply with our parameters
-
-	# FIXME: 
-			"""
-when i choose an operation whose output can match my required output, i need to calculate the TypeVar replacement necessary
-to make the output type align to the required output type. then it needs to be enforced throughout the signature.
-for example:
-
-self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [(4, 4)] tvtypes= {}
-
-filter's post-TypeVar replacement type must match outtype!!!!!!!!!!!!!!!!!!!!!!!!
-
-before self.op= [A] filter((Fun,Bool,(A)),[A]) outtype= [4]
-after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= {0: [4]}
-
-
-			"""
 
 			paramtypes = [x.type for x in Expr.params_by_type(params, Type.A)]
 			availableTypes = OpOuttypes + paramtypes
@@ -828,19 +808,6 @@ def evaluate(population, data, fscore, gencnt):
 				pass
 	return sorted(keep)
 
-"""
-TODO:
-	Once in a while we off on some weird tangent and get stuck, spinning our gears on some weird,
-	overly-complex mutation. We have hit a dead end.
-	as the score of our over-wrought mutant improves, it becomes less and less likely that a
-	drastically different mutation with a better score will emerge in a single generation.
-	Implement a generational tree, tracking all ancestors to a single point.
-	Then, implement a 'deadend' metric that allows us, once we've spent a certain amount of time on a
-	particular Expr, to rewind to its parent and try that. at each stage we may then generate fresh
-	"child" Exprs which we explore. or we may spend time there with no result and rewind further, so on
-	up the tree.
-	this will prevent us from getting stuck.
-"""
 # KeepScore × Multi-generational logic
 class FamilyMember:
 	def __init__(self, ks, parent):
@@ -889,8 +856,6 @@ class Reporter:
 		else:
 			return min(maximum, 10 + math.sqrt(9990) + math.log(n-10000))
 
-from collections import defaultdict
-
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
@@ -930,17 +895,6 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
-		"""
-		pops = sorted([str(p) for p in population])
-		uniq = set(pops)
-		popcnt = defaultdict(int)
-		for p in pops:
-			popcnt[p] += 1
-		#print(' unique=%u/%u (%4.1f%%)' % (len(uniq), popsize, float(len(uniq))/popsize*100,))
-		popcntl = sorted(((v,k) for k,v in popcnt.items()), reverse=True)
-		#print(''.join(['%4u %s\n' % (v,k) for v,k in popcntl]))
-		"""
-
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
 		if keep != [] and keep[0].score < parent.ks.score: # improved generation
 			pop = [FamilyMember(ks, parent) for ks in keep]
