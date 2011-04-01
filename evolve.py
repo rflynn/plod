@@ -995,10 +995,11 @@ if __name__ == '__main__':
 
 	################ Beyond this point stuff doesn't work
 
+	"""
 	evolve( [
 			# FIXME: need this exact code to flatten list, but my code can't generate it!
 			# expect: [y for y in x for x in foo]
 			# GOT: 
 			([[1,2,3]], [1,2,3]),
 		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
-
+	"""
