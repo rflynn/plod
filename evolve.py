@@ -860,7 +860,7 @@ class Reporter:
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
 # score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=2, deadend=20):
+def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=2, deadend=10):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
 	assert type(score) == type(lambda _:_)
@@ -888,18 +888,16 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		r.show(pop, gencnt)
 		gencnt += 1
 
-	# potentially multiple
-	roots = copy.deepcopy(pop)
-
-	while pop[0].ks.score > 0:
+	# go until we find score=0, then spend at least a few generations trying to simplify
+	while pop[0].ks.score > 0 or (gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
-		if keep != [] and keep[0].score < parent.ks.score: # improved generation
+		if keep != [] and keep[0] < pop[0].ks: # improved generation
 			pop = [FamilyMember(ks, parent) for ks in keep]
 		else: # nothing better
-			if gencnt - parent.ks.gencnt >= deadend: # we're stuck
+			if (keep == [] or keep[0].score > 0) and gencnt - parent.ks.gencnt >= deadend: # we're stuck
 				if parent.parent: # we're not at roots yet...
 					# roll parent back to grandparent
 					#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
