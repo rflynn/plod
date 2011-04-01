@@ -820,6 +820,9 @@ class FamilyMember:
 	def __init__(self, ks, parent):
 		self.ks = ks 
 		self.parent = parent
+		if parent:
+			parent.children.append(self)
+		self.children = []
 	def __lt__(self, other):
 		return self.ks < other.ks
 	def __repr__(self):
@@ -901,10 +904,12 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
-		if keep != [] and keep[0] < pop[0].ks: # improved generation
-			pop = [FamilyMember(ks, parent) for ks in keep]
-		else: # nothing better
-			if (keep == [] or keep[0].score > 0) and gencnt - parent.ks.gencnt >= deadend: # we're stuck
+		if keep != []:
+			if keep[0] < pop[0].ks and str(keep[0]) != [str(c) for c in parent.children]:
+				# never-before-seen improvement...
+				pop = [FamilyMember(ks, parent) for ks in keep]
+			elif keep[0].score > 0 and gencnt - parent.ks.gencnt >= deadend:
+				# stuck in a deadend...
 				if parent.parent: # we're not at roots yet...
 					# roll parent back to grandparent
 					#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
