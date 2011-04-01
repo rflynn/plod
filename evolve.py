@@ -798,7 +798,7 @@ class KeepScore:
 			return self.invarcnt < other.invarcnt
 		if self.gencnt != other.gencnt: # then older over newer...
 			return self.gencnt < other.gencnt
-		return 0
+		return False
 
 # run each candidate against the data, score the results, keep the least-awful scoring functions
 def evaluate(population, data, fscore, gencnt):
