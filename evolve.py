@@ -333,9 +333,6 @@ class Expr(Value):
 		if type(outtype) == tuple and outtype[0] == Type.FUN:
 			# TODO: break this block out
 			_,outp,inp = outtype
-			# if we're generating a list-processing lambda, strip the list type off the input/output types
-			if type(outp) == list:
-				outp = outp[0]
 			#print('created lambda inp=%s outp=%s' % (inp, outp))
 			# reduce parameters to those being passed specifically, and rename for use within the function
 			lparams = tuple(Variable(v,k) for k,v in zip(['x','y','z'], inp))
@@ -352,8 +349,6 @@ class Expr(Value):
 			pt = Expr.params_by_type(params, outtype)
 			#print('outtype=',Type.repr(outtype),'params=',[p.dump() for p in params],'pt=',pt)
 			self.op = Id
-			#if pt == () or (r < Log[depth] / Log[maxdepth] / 10 and outtype != Type.BOOL):
-			#if pt == () or (r < depth / maxdepth / 10 and outtype != Type.BOOL):
 			if pt == () or r < depth / maxdepth / 2:
 				if Type.is_scalar(outtype):
 					self.exprs = [Value(outtype)] # random literal
@@ -362,9 +357,7 @@ class Expr(Value):
 				elif type(outtype) == list: # list literal
 					# FIXME: do not wrap in a list if it's already a list....
 					#print('self.type=',self.type)
-					x = [Expr(params, t, depth+1, maxdepth) for t in self.type]
-					if len(x) == 1 and type(x[0].type) == list:
-						x = x[0] # unwrap
+					x = [Expr(params, t, depth+1, maxdepth) for t in outtype]
 					self.exprs = [x]
 				else:
 					print('not expecting outtype=',outtype)
@@ -413,7 +406,7 @@ after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= 
 	# and vice versa, replacing random invariants
 	# FIXME: somehow mutate() is unable to ever generate correct mutations concerning list types. i have no idea why.
 	def mutate(self, depth, maxdepth):
-		mutation = 0.99 #Log[depth] / Log[maxdepth]
+		mutation = 0.90
 		r = random.random()
 		if r < mutation: # mutate self
 			if r < mutation * 0.01:
@@ -443,7 +436,6 @@ after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= 
 					return y
 			else:
 				# replace self with completely random new Expr
-				#self.__init__(self.params, self.type, depth, maxdepth)
 				self = Expr(self.params, self.type, depth, maxdepth)
 
 		else: # maybe mutate child
@@ -794,10 +786,8 @@ def run_score(estr, data, fscore):
 		print(estr)
 		sys.stdout.flush()
 		sys.exit(1)
-		# whoops, blew up. could be /0, %0, log(0), etc
 		# assign worst possible score, keep going
 		score = WorstScore
-	#print('score=',score)
 	return score
 
 # Expr p × population rankings
@@ -889,6 +879,7 @@ class Reporter:
 			'' if pop == [] else pop[0].ks)
 		sys.stdout.write(self.msg)
 		sys.stdout.flush()
+	# scale score 'n' to display value progress bar in most useful way
 	@staticmethod
 	def scale(n, maximum=80):
 		if n < 10:
@@ -970,6 +961,14 @@ if __name__ == '__main__':
 	test()
 
 	evolve( [
+			# basic filter
+			# expect: [x for x in foo if (x >= 4)]
+			([1,2,3,4,5], [4,5]),
+			([0,10,1e6,2,3], [10,1e6]),
+			([0,0,0,0,0,0,1,2,3], []),
+		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res)))
+
+	evolve( [
 			# expect: sum([x[0] for x in foo])
 			# got: sum([sum([x[0]]) for x in foo])
 			([(10,1)], 10),
@@ -1032,22 +1031,14 @@ if __name__ == '__main__':
 			([(0,5,2,3)], 2.5),
 			([(0,0,50,50)], 25),
 			([(2,0,0,2)], 1),
-		], maxdepth=8, popkeep=5)
+		], maxdepth=8)
 
 	################ Beyond this point stuff doesn't work
-
-	evolve( [	# FIXME: if we don't evolve() the answer in the first generation we never get it. WHY?!?!?!!?!?
-			# basic filter
-			# expect: [x for x in foo if (x >= 4)]
-			([1,2,3,4,5], [4,5]),
-			([0,10,1e6,2,3], [10,1e6]),
-			([0,0,0,0,0,0,1,2,3], []),
-		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res)))
 
 	evolve( [
 			# FIXME: need this exact code to flatten list, but my code can't generate it!
 			# expect: [y for y in x for x in foo]
 			# GOT: 
 			([[1,2,3]], [1,2,3]),
-		], score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
+		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
 
