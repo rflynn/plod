@@ -449,10 +449,7 @@ after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= 
 		else: # maybe mutate child
 			mutatable = tuple(e for e in self.exprs if hasattr(e,'mutate'))
 			if mutatable != ():
-				return random.choice(mutatable).mutate(depth+1, maxdepth)
-			#try:
-			#random.choice(self.exprs).mutate(depth+1, maxdepth)
-			#except AttributeError:
+				random.choice(mutatable).mutate(depth+1, maxdepth)
 		return self
 
 	# recursively co-dependent on instance method is_invariant()
@@ -507,7 +504,6 @@ after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= 
 	# appears to speed solution
 	# FIXME: appears to be returning list types instead of numbers sometimes, wtf
 	def canonical(self):
-		"""
 		# recurse downwards, 
 		self.exprs = [Expr.canonicalize(e) for e in self.exprs]
 		if self.op.name == 'map':
@@ -642,7 +638,6 @@ after self.op= [[Num]] filter((Fun,Bool,([Num])),[[Num]]) outtype= [4] tvtypes= 
 					self.op, self.exprs = Id, [Value(Type.NUM, 0)]
 			# TODO:...
 			# sum(x[y] for x in foo) + sum(x[z] for x in foo) -> sum(x[y]+x[z] for y in foo)
-		"""
 		return self
 
 	def __repr__(self):
@@ -786,7 +781,6 @@ WorstScore = float('inf')
 # run Expr e(data), score the result
 def run_score(estr, data, fscore):
 	try:
-		print(estr)
 		score = 0
 		for d in data:
 			res = eval('lambda foo:'+estr)(d[0])
@@ -836,7 +830,7 @@ def evaluate(population, data, fscore, gencnt):
 	for estr,p in uniq.items():
 		score = run_score(estr, data, fscore)
 		if score != WorstScore:
-			#p = Expr.canonical(p)
+			p = Expr.canonical(p)
 			try:
 				if not p.is_invariant():
 					keep.append(KeepScore(p, score, gencnt))
