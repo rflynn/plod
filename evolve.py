@@ -743,7 +743,13 @@ class Expr(Value):
 	# count the number of total nodes
 	@staticmethod
 	def size(e):
-		return 1 + sum([Expr.size(e) for e in e.exprs]) if hasattr(e,'exprs') else 0
+		try:
+			return int(e.op is not Id) + sum([Expr.size(e) for e in e.exprs])
+		except:
+			try:
+				return sum([Expr.size(e) for e in e])
+			except:
+				return 1
 
 	# count the number of random invariants present
 	@staticmethod
