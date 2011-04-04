@@ -17,6 +17,7 @@ import math
 from math import sqrt,log
 from test import unittest # custom
 from functools import reduce
+from datetime import datetime # we need a datetime type for real-world data
 
 class Type:
 	A     = 0 # TypeVar
@@ -319,12 +320,6 @@ Ops = (
 	#Op('wday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.isoweekday()' % (x,)),
 )
 OpOuttypes = [Type.BOOL,Type.NUM]#,[Type.A],[Type.B]]#,Type.B]
-
-from datetime import datetime
-"""
-we need a datetime type for real-world data
-"""
-
 
 OpOuttypeDict = {} # cache Op outtype lookup
 def ops_by_outtype(outtype):
