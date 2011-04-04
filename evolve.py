@@ -246,6 +246,15 @@ class Op:
 	def inTypesMatch(self, availableTypes):
 		#print(self.name,'inTypesMatch(inset=',self.inset,',availableTypes=',availableTypes,'availableTypes',availableTypes,'&=',self.inset & availableTypes,')')
 		return self.inset == set() or (self.inset & availableTypes) == self.inset
+	@staticmethod
+	def copy(op):
+		if op.name in ('gte','len','map','filter','reduce'):
+			# these ops have TypeVars in their signatures which require them to be modified
+			x = copy.copy(op)
+			x.type = copy.deepcopy(x.type)
+			x.intype = copy.deepcopy(x.intype)
+			return x
+		return op
 
 # id(x) -> x. used to wrap a Value/Variable in an Expr
 Id = Op('id', Type.A, (Type.A,), lambda x: str(x))
@@ -400,7 +409,7 @@ class Expr(Value):
 			# only choose operations whose output matches our input and whose input
 			# we can possibly supply with our parameters
 
-			self.op = copy.deepcopy(random.choice(okops))
+			self.op = Op.copy(random.choice(okops))
 
 			#if self.op.name == 'year':
 				#print('year availableTypeset=',availableTypeset)
