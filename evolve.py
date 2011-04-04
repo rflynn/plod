@@ -540,19 +540,32 @@ class Expr(Value):
 		else:
 			return x
 
+	@staticmethod
+	def visit(e):
+		try:
+			for x in e:
+				Expr.visit(x)
+		except:
+			pass
+		yield e
+
 	# reduce expressions to their simplified, canonical form
 	# relatively expensive, only use to clean up decent candidates
 	# NOTE: this may seem like trivial aesthetics but reducing complexity
 	# appears to speed solution
-	# FIXME: appears to be returning list types instead of numbers sometimes, wtf
 	def canonical(self):
 		# recurse downwards, 
 		self.exprs = [Expr.canonicalize(e) for e in self.exprs]
 		if self.op.name == 'map':
-			# [x for x in y] -> y
-			if str(self.exprs[0]) == ','.join(self.exprs[0].op.paramkeys):
-				self = self.exprs[1]
-			# TODO: [2 for x in [0]]
+			# TODO: [10 for x in foo]
+			try:
+				x = eval(str(self))
+				# reduce invariant mapping, i.e. [2 for x in [0]] -> [2]
+				self.op, self.exprs = Id, [Value(self.type, x)]
+			except:
+				# [x for x in y] -> y
+				if str(self.exprs[0]) == ','.join(self.exprs[0].op.paramkeys):
+					self = self.exprs[1]
 		elif self.op.name == 'filter':
 			#print('filter exprs[0]=%s' % (self.exprs[0],))
 			v = str(self.exprs[0])
@@ -606,13 +619,16 @@ class Expr(Value):
 					# 5 * x -> x * 5
 					if self.exprs[0].is_invariant() and not self.exprs[1].is_invariant():
 						self.exprs[0], self.exprs[1] = self.exprs[1], self.exprs[0]
-
+					elif e1 < e0:
+						# sort parameters alphabetically
+						self.exprs[0], self.exprs[1] = self.exprs[1], self.exprs[0]
 		elif self.op.name in ('eq','gte','gte'):
 			# x == x -> True
 			# x <= x -> True
 			# x >= x -> True
 			if str(self.exprs[0]) == str(self.exprs[1]):
 				self.op, self.exprs = Id, [Value(Type.BOOL, True)]
+			# TODO: ((50 + len(foo)) >= 53)
 		elif self.op.name in ('gt','lt'):
 			# x < x -> False
 			# x > x -> False
@@ -648,14 +664,13 @@ class Expr(Value):
 					self = self.exprs[1]
 				elif e1 == 'True':
 					self = self.exprs[0]
-		elif self.op.name == 'sqrt':
-			# sqrt(0|1) -> 0|1
-			if str(self.exprs[0]) in ('0','1'):
-				self = self.exprs[0]
-		elif self.op.name == 'log':
-			# log(1) -> 0
-			if str(self.exprs[0]) == '1':
-				self.op, self.exprs = Id, [Value(Type.NUM, 0)]
+		elif self.op.name in ('sqrt','log'):
+			try:
+				n = eval(str(self))
+				if n == round(n):
+					self.op, self.exprs = Id, [Value(Type.NUM, n)]
+			except:
+				pass
 		elif self.op.name == 'abs' and self.is_invariant():
 			# abs(positive_invariant) -> positive_invariant
 			try:
