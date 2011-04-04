@@ -491,26 +491,29 @@ class Expr(Value):
 	# recursively co-dependent on instance method is_invariant()
 	@staticmethod
 	def is_invariant(x):
-		try:
-			return x.is_invariant()
-		except:
-			if type(x) in (tuple,list):
-				return all(Expr.is_invariant(y) for y in x)
-			else:
-				return True
+		if type(x) in (Expr,tuple,list):
+			return all(Expr.is_invariant(y) for y in x)
+		elif type(x) == Value:
+			return True
+		elif type(x) == Variable:
+			return False
+		else:
+			print('not expecting type %s: %s' % (type(x), x))
+			assert False
 
 	# Is this Expr invariant? That is, does it contain references to variables? Co-dependent with Expr.is_invariant
+	# FIXME: is_invariant() is a complete clusterfuck. I do not understand why I have to implement it like this
+	# but can't get it to work any other way. Why don't Value and Variable retain their own methods?!
 	def is_invariant(self):
-		try:
-			ei = [Expr.is_invariant(e) for e in self.exprs]
-		except:
-			return type(self) not in (Expr,Variable)
-		if self.op.name == 'map':
-			return ei[0] or str(self.exprs[0]) == ','.join(self.exprs[0].op.paramkeys)
-		elif self.op.name in ('if','filter','reduce'):
-			return ei[0]
-		else:
-			return all(ei)
+		if self is None:
+			# FIXME: why the fuck does Expr.is_invariant(None) get here?!
+			return True 
+		if type(self) in (Expr,):
+			return all(Expr.is_invariant(x) for x in self.exprs)
+		elif type(self) == Value:
+			return True
+		elif type(self) == Variable:
+			return False
 
 	def invariant_val(self):
 		try:
