@@ -43,6 +43,21 @@ class Type:
 		return False
 
 	@staticmethod
+	def zero(t):
+		if t == Type.NUM:
+			return 0
+		elif t == Type.BOOL:
+			return False
+		elif type(t) == tuple:
+			return ()
+		elif type(t) == list:
+			return []
+		elif type(t) == Lambda:
+			return t
+		else:
+			return None
+
+	@staticmethod
 	def match(spec, t):
 		#print('match(spec=',spec,'t=',t,')')
 		return (spec == t or Type.is_typevar(spec) or
@@ -442,12 +457,10 @@ class Expr(Value):
 				# preserve self as parameter to random new Expr 
 				# x+(y+z) -> e+(x+z) | e+(y+x)
 				e = Expr(self.params, self.type, depth, maxdepth)
-				i = random.randint(0, len(e.exprs)-1)
-				try:
-					if e.exprs[i].type == self.type:
-						e.exprs[i] = self
-				except:
-					pass
+				x = tuple(i for i,e in enumerate(e.exprs) if isinstance(e, Value) and e.type == self.type)
+				if x != ():
+					# trim out any too-deep self.exprs
+					e.exprs[random.choice(x)] = Expr.adjdepth(self, depth+1, maxdepth)
 				return e
 			elif r < mutation * 0.5:
 				# replace self with parameter
@@ -460,7 +473,6 @@ class Expr(Value):
 			else:
 				# replace self with completely random new Expr
 				self = Expr(self.params, self.type, depth, maxdepth)
-
 		else: # maybe mutate child
 			mutatable = tuple(e for e in self.exprs if hasattr(e,'mutate'))
 			if mutatable != ():
@@ -468,6 +480,13 @@ class Expr(Value):
 			else:
 				self = Expr(self.params, self.type, depth, maxdepth)
 		return self
+
+	# our depth has changed; trim any sub-Exprs that violate maxdepth
+	@staticmethod
+	def adjdepth(e, depth, maxdepth):
+		if depth >= maxdepth:
+			e.op, e.exprs = Id, [Value(e.type, Type.zero(e.type))]
+		return e
 
 	# recursively co-dependent on instance method is_invariant()
 	@staticmethod
