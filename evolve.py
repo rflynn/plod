@@ -1015,7 +1015,7 @@ class Reporter:
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
 # score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=10):
+def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
 	assert type(score) == type(lambda _:_)
@@ -1047,13 +1047,14 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		gentotal += 1
 
 	# go until we find score=0, then spend at least a few generations trying to simplify
+	# TODO: i think i should iterate from [1..maxdepth] to isolate the most important factor for each depth.
 	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
 		if keep != []:
-			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0) and str(keep[0]) not in parent.children:
+			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize) and str(keep[0]) not in parent.children:
 				# never-before-seen reasonable improvement...
 				# NOTE: this allows duplicates, but never from the same parent
 				pop = [FamilyMember(ks, parent) for ks in keep]
@@ -1062,7 +1063,7 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 				if parent.parent:# and parent.parent.ks.score < len(data): # we're not at roots yet...
 					# roll parent back to grandparent
 					#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
-					pop = [parent.parent] # FIXME: how to get grandparents' siblings?
+					pop = [parent.parent]
 					gencnt = parent.parent.ks.gencnt # reset gencnt, otherwise our rollback cascades all the way back
 		r.show(pop, gencnt, gentotal)
 		gencnt += 1
