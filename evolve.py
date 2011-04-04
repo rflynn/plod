@@ -914,6 +914,13 @@ class KeepScore:
 		if self.gencnt != other.gencnt: # then older over newer...
 			return self.gencnt < other.gencnt
 		return False
+	# how much better is my score than someone else's?
+	# used to implement a larger epsilon for comparing Expr scores
+	# to hinder the accumulation of meaningless invariant terms
+	def pct_improvement(self, other):
+		if self.score == 0:
+			return float('inf')
+		return ((float(other.score) / self.score) - 1.) * 100.
 
 # run each candidate against the data, score the results, keep the least-awful scoring functions
 def evaluate(population, data, fscore, gencnt):
@@ -1026,19 +1033,19 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		gentotal += 1
 
 	# go until we find score=0, then spend at least a few generations trying to simplify
-	while pop[0].ks.score > 0 or (gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
+	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
 		if keep != []:
-			if keep[0] < pop[0].ks and str(keep[0]) not in parent.children:
-				# never-before-seen improvement...
+			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0) and str(keep[0]) not in parent.children:
+				# never-before-seen reasonable improvement...
 				# NOTE: this allows duplicates, but never from the same parent
 				pop = [FamilyMember(ks, parent) for ks in keep]
 			elif keep[0].score > 0 and gencnt - parent.ks.gencnt >= deadend:
 				# stuck in a deadend...
-				if parent.parent and parent.parent.ks.score < len(data): # we're not at roots yet...
+				if parent.parent:# and parent.parent.ks.score < len(data): # we're not at roots yet...
 					# roll parent back to grandparent
 					#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
 					pop = [parent.parent] # FIXME: how to get grandparents' siblings?
