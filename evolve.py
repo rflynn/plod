@@ -985,12 +985,13 @@ class Reporter:
 		else: # otherwise, remove previous line
 			sys.stdout.write('\b' * len(self.msg))
 			#sys.stdout.write('\n')
+		sys.stdout.flush()
 		if gentotal == 0:
 			print('date                 cnt work progress expr')
 		t = time.localtime()
 		self.msg = '%04d-%02d-%02d-%02d:%02d:%02d %4u %2u %s %s %s' % \
 			(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
-			gentotal, gencnt, '.' * Reporter.parentcnt(pop[0]), #(len(self.scores) - self.reversecnt),
+			gentotal, gencnt, '.' * (0 if pop == [] else Reporter.parentcnt(pop[0])),
 			'' if pop == [] else '#' * int(Reporter.scale(pop[0].ks.score)),
 			'' if pop == [] else pop[0].ks)
 		sys.stdout.write(self.msg)
