@@ -294,10 +294,10 @@ Ops = (
 	Op('log', Type.NUM,	(Type.NUM,),			lambda x:    'log(%s)' % (x,)),
 	#Op('mod', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s %% %s)' % (x,y)),
 	#Op('abs', Type.NUM,	(Type.NUM,),			lambda x:    'abs(%s)' % (x,)),
-	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s,%s)' % (x,y)),
-	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s,%s)' % (x,y)),
+	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s, %s)' % (x,y)),
+	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s, %s)' % (x,y)),
 	Op('len', Type.NUM,	([Type.A],),			lambda x:    'len(%s)' % (x,)),
-	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)),
+	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)), # NOTE: sum(list, []) flattens lists... allow?
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)),
 	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
 		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
