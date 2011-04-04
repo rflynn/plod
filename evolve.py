@@ -436,6 +436,8 @@ class Expr(Value):
 						self.exprs[:2] = self.exprs[1], self.exprs[0]
 					elif len(self.exprs) > 2 and self.exprs[1].type == self.exprs[2].type:
 						self.exprs[1:3] = self.exprs[2], self.exprs[1]
+				else:
+					self = Expr(self.params, self.type, depth, maxdepth)
 			elif r < mutation * 0.25:
 				# preserve self as parameter to random new Expr 
 				# x+(y+z) -> e+(x+z) | e+(y+x)
@@ -453,7 +455,8 @@ class Expr(Value):
 				y = random.choice(self.exprs)
 				if type(y) == Expr and y.type == self.type:
 					self = y
-					return y
+				else:
+					self = Expr(self.params, self.type, depth, maxdepth)
 			else:
 				# replace self with completely random new Expr
 				self = Expr(self.params, self.type, depth, maxdepth)
@@ -462,6 +465,8 @@ class Expr(Value):
 			mutatable = tuple(e for e in self.exprs if hasattr(e,'mutate'))
 			if mutatable != ():
 				random.choice(mutatable).mutate(depth+1, maxdepth)
+			else:
+				self = Expr(self.params, self.type, depth, maxdepth)
 		return self
 
 	# recursively co-dependent on instance method is_invariant()
