@@ -301,7 +301,7 @@ Ops = (
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)),
 	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
 		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
-	Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A], Type.B),	lambda x,y,z: 'reduce(lambda %s: %s, %s, %s)' % (','.join(x.op.paramkeys),x,y,z)),
+	Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A]),	lambda x,y: 'reduce(lambda %s: %s, %s)' % (','.join(x.op.paramkeys),x,y)),
 	#Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
 		#lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
 		#[item for sublist in l for item in sublist]
