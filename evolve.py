@@ -803,16 +803,19 @@ class Expr(Value):
 				return 1
 
 	# count the number of random invariants present
+	# FIXME: invarcnt=0 (((((((reduce(lambda x,y: x, reduce(lambda x,y: [True], foo)) / log(15)) / log(log(10))) * log(3)) + (37 / 71)) + (sqrt(11) / 101)) + (2 / 90)) + (9 / 100))         
 	@staticmethod
 	def invariant_count(e):
-		if type(e) != Expr:
-			if type(e) in (tuple,list):
-				return sum([Expr.invariant_count(x) for x in e])
-			return int(type(e) == Value)
-		elif e.op is Id:
-			return int(type(e.exprs[0]) == Value)
-		else:
-			return sum([Expr.invariant_count(x) for x in e.exprs])
+		try:
+			return sum([Expr.invariant_count(e) for e in e.exprs])
+		except:
+			try:
+				return sum([Expr.invariant_count(e) for e in e])
+			except:
+				try:
+					return e.is_invariant()
+				except:
+					return 1
 
 def test_type_describe():
 	assert unittest(Type.describe,
