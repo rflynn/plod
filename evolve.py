@@ -918,6 +918,7 @@ def run_score(params):
 	try:
 		score = 0
 		for d in data:
+			# TODO: is there a more efficient way than eval()ing once per d? maybe functools.partial?
 			res = eval('lambda foo:'+estr)(d[0])
 			fs = fscore(d, res)
 			score += fs
@@ -1036,7 +1037,6 @@ def evaluate(population, pop, data, fitness, gencnt):
 	worstscore = pop[-1].ks.score if pop != [] else WorstScore
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
-	# TODO: this loop is what we want to parallelize
 	pool = mp.Pool(mp.cpu_count())
 	scored = pool.map(run_score, [(estr, data, fitness, worstscore, p) for estr,p in uniq.items()])
 	for estr,p,score in scored:
@@ -1051,12 +1051,17 @@ def evaluate(population, pop, data, fitness, gencnt):
 				pass
 	return sorted(keep)
 
+# default fitness function
+# d=(in, out)
+# res=candidate result
+def fit(d,res):
+	return abs(d[1]-res)
 
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
 # score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve(data, fitness=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
+def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
 	assert type(fitness) == type(lambda _:_)
