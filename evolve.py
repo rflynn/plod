@@ -273,6 +273,11 @@ class Op:
 			return x
 		return op
 
+def id_str(x):
+	if type(x) == float and x == int(x):
+		# reduce '0.0' to '0'
+		x = int(x)
+	return str(x)
 def gte_str(x,y):
 	return '(%s >= %s)' % (x,y)
 def add_str(x,y):
@@ -303,7 +308,7 @@ def year_str(x,y):
 	return '%s.year' % (x,)
 
 # id(x) -> x. used to wrap a Value/Variable in an Expr
-Id = Op('id', Type.A, (Type.A,), str)
+Id = Op('id', Type.A, (Type.A,), id_str)
 
 # list of all possible operations
 Ops = (
