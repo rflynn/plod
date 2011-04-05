@@ -1050,7 +1050,7 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
-		population = (copy.deepcopy(parent.ks.expr).mutate(1, maxdepth) for _ in range(0, popsize))
+		population = (copy.deepcopy(parent.ks.expr).mutate(1, min(maxdepth, int(2+math.log(gentotal)))) for _ in range(0, popsize))
 		keep = evaluate(population, data, score, gencnt)[:popkeep]
 		if keep != []:
 			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize) and str(keep[0]) not in parent.children:
