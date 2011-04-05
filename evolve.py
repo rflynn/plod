@@ -273,8 +273,37 @@ class Op:
 			return x
 		return op
 
+def gte_str(x,y):
+	return '(%s >= %s)' % (x,y)
+def add_str(x,y):
+	return '(%s + %s)' % (x,y)
+def mul_str(x,y):
+	return '(%s * %s)' % (x,y)
+def div_str(x,y):
+	return '(%s / %s)' % (x,y)
+def sqrt_str(x):
+	return 'sqrt(%s)' % (x,)
+def log_str(x):
+	return 'log(%s)' % (x,)
+def min_str(x,y):
+	return 'min(%s, %s)' % (x,y)
+def max_str(x,y):
+	return 'max(%s, %s)' % (x,y)
+def len_str(x):
+	return 'len(%s)' % (x,)
+def sum_str(x):
+	return 'sum(%s)' % (x,)
+def map_str(x,y):
+	return '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)
+def filter_str(x,y):
+	return '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)
+def reduce_str(x,y):
+	return 'reduce(lambda %s: %s, %s)' % (','.join(x.op.paramkeys),x,y)
+def year_str(x,y):
+	return '%s.year' % (x,)
+
 # id(x) -> x. used to wrap a Value/Variable in an Expr
-Id = Op('id', Type.A, (Type.A,), lambda x: str(x))
+Id = Op('id', Type.A, (Type.A,), str)
 
 # list of all possible operations
 Ops = (
@@ -284,26 +313,25 @@ Ops = (
 	#Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	lambda x,y,z:'(%s if %s else %s)' % (y,x,z)),
 	#Op('eq',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s == %s)' % (x,y)),
 	#Op('gt',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s > %s)' % (x,y)),
-	Op('gte', Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s >= %s)' % (x,y)),
-	Op('add', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s + %s)' % (x,y)),
+	Op('gte', Type.BOOL,	(Type.A,   Type.A),		gte_str),
+	Op('add', Type.NUM,	(Type.NUM, Type.NUM),		add_str),
 	#Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s - %s)' % (x,y)),
-	Op('mul', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s * %s)' % (x,y)),
-	Op('div', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s / %s)' % (x,y)),
+	Op('mul', Type.NUM,	(Type.NUM, Type.NUM),		mul_str),
+	Op('div', Type.NUM,	(Type.NUM, Type.NUM),		div_str),
 	# pow is a CPU sink. whereas all other functions produce output lte their parameters,
 	# modest parameters can generate huge amounts of work, i.e. 
 	#Op('pow', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s ** %s)' % (x,y)),
-	Op('sqrt', Type.NUM,	(Type.NUM,),			lambda x:    'sqrt(%s)' % (x,)),
-	Op('log', Type.NUM,	(Type.NUM,),			lambda x:    'log(%s)' % (x,)),
+	Op('sqrt', Type.NUM,	(Type.NUM,),			sqrt_str),
+	Op('log', Type.NUM,	(Type.NUM,),			log_str),
 	#Op('mod', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s %% %s)' % (x,y)),
 	#Op('abs', Type.NUM,	(Type.NUM,),			lambda x:    'abs(%s)' % (x,)),
-	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'min(%s, %s)' % (x,y)),
-	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  'max(%s, %s)' % (x,y)),
-	Op('len', Type.NUM,	([Type.A],),			lambda x:    'len(%s)' % (x,)),
-	Op('sum', Type.NUM,	([Type.NUM],),			lambda x:    'sum(%s)' % (x,)), # NOTE: sum(list, []) flattens lists... allow?
-	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	lambda x,y: '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)),
-	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),
-		lambda x,y: '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)),
-	Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A]),	lambda x,y: 'reduce(lambda %s: %s, %s)' % (','.join(x.op.paramkeys),x,y)),
+	Op('min', Type.NUM,	(Type.NUM, Type.NUM),		min_str),
+	Op('max', Type.NUM,	(Type.NUM, Type.NUM),		max_str),
+	Op('len', Type.NUM,	([Type.A],),			len_str),
+	Op('sum', Type.NUM,	([Type.NUM],),			sum_str),
+	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	map_str),
+	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),	filter_str),
+	Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A]),	reduce_str),
 	#Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
 		#lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
 		#[item for sublist in l for item in sublist]
@@ -314,7 +342,7 @@ Ops = (
 
 	# date/time-related operations
 	# these must be implemented for real analysis
-	Op('year', Type.NUM,	(Type.DATE,),		lambda x:    '%s.year' % (x,)),
+	Op('year', Type.NUM,	(Type.DATE,),		year_str),
 	#Op('month', Type.NUM,	(Type.DATE,),		lambda x:    '%s.month' % (x,)),
 	#Op('mday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.mday' % (x,)),
 	#Op('hour', Type.NUM,	(Type.DATE,),		lambda x:    '%s.hour' % (x,)),
@@ -912,15 +940,22 @@ for the Netflix challenge it would be even more challenging...
 
 WorstScore = float('inf')
 
+# default fitness function
+# d=(in, out)
+# res=candidate result
+def fit(d,res):
+	return abs(d[1]-res)
+
 # run Expr e(data), score the result
 def run_score(params):
-	estr, data, fscore, worstscore, p = params
+	#estr, data, fitness, worstscore, p = params
+	estr, data, worstscore, p = params
 	try:
 		score = 0
 		for d in data:
 			# TODO: is there a more efficient way than eval()ing once per d? maybe functools.partial?
 			res = eval('lambda foo:'+estr)(d[0])
-			fs = fscore(d, res)
+			fs = fit(d, res)
 			score += fs
 			if score >= worstscore:
 				break # short-circuit upon poor score, speeds up large data
@@ -1032,16 +1067,13 @@ class Reporter:
 			return min(maximum, 10 + math.sqrt(9990) + math.log(n-10000))
 
 # run each candidate against the data, score the results, keep the least-awful scoring functions
-def evaluate(population, pop, data, fitness, gencnt):
+def evaluate(pool, population, pop, data, fitness, gencnt):
 	# only even consider keeping someone if it scores better than the worst we've already kept
 	worstscore = pop[-1].ks.score if pop != [] else WorstScore
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
-	pool = mp.Pool(mp.cpu_count())
-	scored = pool.map(run_score, [(estr, data, fitness, worstscore, p) for estr,p in uniq.items()])
+	scored = pool.map(run_score, [(estr, data, worstscore, p) for estr,p in uniq.items()])
 	for estr,p,score in scored:
-	#for estr,p in uniq.items():
-	#	score = run_score(estr, data, fitness, worstscore)
 		if score < worstscore:
 			p = Expr.canonical(p)
 			try:
@@ -1051,11 +1083,14 @@ def evaluate(population, pop, data, fitness, gencnt):
 				pass
 	return sorted(keep)
 
-# default fitness function
-# d=(in, out)
-# res=candidate result
-def fit(d,res):
-	return abs(d[1]-res)
+# given an existing Expr e, generate a random mutation
+def mutate_expr(params):
+	e, maxdepth = params
+	return e.mutate(1, maxdepth)
+
+def mutate_pop(pool, parent, popsize, maxdepth):
+	population = pool.map(mutate_expr, [(parent, maxdepth) for _ in range(0, popsize)])
+	return population
 
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
@@ -1080,13 +1115,14 @@ def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, 
 	gencnt = 0
 	pop = []
 	r = Reporter()
+	pool = mp.Pool(mp.cpu_count())
 
 	# generate/mutate functions, test them, keep the best ones
 
 	while pop == []:
 		population = (Expr(sym, outtype, 1, maxdepth) for _ in range(0, popsize))
 		#print('pop=',''.join(['%s invariant=%s\n' % (p,p.is_invariant()) for p in population]))
-		keep = evaluate(population, pop, data, fitness, gencnt)[:popkeep]
+		keep = evaluate(pool, population, pop, data, fitness, gencnt)[:popkeep]
 		pop = [FamilyMember(ks, None) for ks in keep[:popkeep]]
 		r.show(pop, gencnt, gentotal)
 		gencnt += 1
@@ -1097,8 +1133,9 @@ def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, 
 	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
-		population = (copy.deepcopy(parent.ks.expr).mutate(1, min(maxdepth, int(2+math.log(gentotal)))) for _ in range(0, popsize))
-		keep = evaluate(population, pop, data, fitness, gencnt)[:popkeep]
+		maxd = min(maxdepth, int(2+math.log(gentotal)))
+		population = mutate_pop(pool, parent.ks.expr, popsize, maxd)
+		keep = evaluate(pool, population, pop, data, fitness, gencnt)[:popkeep]
 		if keep != []:
 			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize) and str(keep[0]) not in parent.children:
 				# never-before-seen reasonable improvement...
