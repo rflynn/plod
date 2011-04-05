@@ -978,14 +978,13 @@ class Reporter:
 		self.lastgencnt = gencnt
 		if pop != [] and pop[0].ks.score != self.scores[-1]:
 			self.scores.append(pop[0].ks.score)
-			if gencnt != 0:
+			if gentotal != 0:
 				sys.stdout.write('\n')
 		else: # otherwise, remove previous line
 			sys.stdout.write('\b' * len(self.msg))
 			#sys.stdout.write('\n')
-		sys.stdout.flush()
 		if gentotal == 0:
-			print('date                 cnt work progress expr')
+			print('date                 gen brch progress expr')
 		t = time.localtime()
 		self.msg = '%04d-%02d-%02d-%02d:%02d:%02d %4u %2u %s %s %s' % \
 			(t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec,
