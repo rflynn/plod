@@ -912,13 +912,15 @@ for the Netflix challenge it would be even more challenging...
 WorstScore = float('inf')
 
 # run Expr e(data), score the result
-def run_score(estr, data, fscore):
+def run_score(estr, data, fscore, worstscore):
 	try:
 		score = 0
 		for d in data:
 			res = eval('lambda foo:'+estr)(d[0])
 			fs = fscore(d, res)
 			score += fs
+			if score >= worstscore:
+				break # short-circuit upon poor score, speeds up large data
 	except (ZeroDivisionError, ValueError):
 		# ZeroDiv: /0 or %0
 		# ValueError: log(0)
