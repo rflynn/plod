@@ -398,7 +398,7 @@ class Expr(Value):
 			#if outtype == Type.DATE:
 				#print('outtype=',Type.repr(outtype),'params=',[p.dump() for p in params],'pt=',pt)
 			self.op = Id
-			if (pt == () or r < depth / maxdepth / 5) and Type.can_literal(outtype):
+			if (pt == () or r < depth / maxdepth / 10) and Type.can_literal(outtype):
 				if Type.is_scalar(outtype):
 					self.exprs = [Value(outtype)] # random literal
 				elif type(outtype) == tuple: # tuple literal
