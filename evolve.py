@@ -450,7 +450,7 @@ class Expr(Value):
 		#print('outtype=',Type.repr(outtype),'opt=',opt)
 
 		paramtypes = [x.type for x in Expr.params_by_type(params, Type.A)]
-		optypes = OpOuttypes if depth+1 < maxdepth else []
+		optypes = OpOuttypes if depth < maxdepth else []
 		availableTypes = paramtypes + optypes
 		availableTypeset = Type.setreal(availableTypes)
 		okops = tuple(o for o in opt if o.inTypesMatch(availableTypeset))
@@ -951,16 +951,18 @@ WorstScore = float('inf')
 def fit(d,res):
 	return abs(d[1]-res)
 
+Data = []
+
 # run Expr e(data), score the result
 def run_score(params):
 	#estr, data, fitness, worstscore, p = params
-	estr, data, worstscore, p = params
+	estr, fitness, worstscore, p = params
 	try:
 		score = 0
-		for d in data:
+		for d in globals()['Data']:
 			# TODO: is there a more efficient way than eval()ing once per d? maybe functools.partial?
 			res = eval('lambda foo:'+estr)(d[0])
-			fs = fit(d, res)
+			fs = fitness(d, res)
 			score += fs
 			if score >= worstscore:
 				break # short-circuit upon poor score, speeds up large data
@@ -1072,12 +1074,13 @@ class Reporter:
 			return min(maximum, 10 + math.sqrt(9990) + math.log(n-10000))
 
 # run each candidate against the data, score the results, keep the least-awful scoring functions
-def evaluate(pool, population, pop, data, fitness, gencnt):
+def evaluate(pool, population, pop, fitness, gencnt):
 	# only even consider keeping someone if it scores better than the worst we've already kept
 	worstscore = pop[-1].ks.score if pop != [] else WorstScore
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
-	scored = pool.map(run_score, [(estr, data, worstscore, p) for estr,p in uniq.items()])
+	# TODO: figure out how to avoid copying data; it will always be the same
+	scored = pool.map(run_score, [(estr, fitness, worstscore, p) for estr,p in uniq.items()])
 	for estr,p,score in scored:
 		if score < worstscore:
 			p = Expr.canonical(p)
@@ -1097,11 +1100,19 @@ def mutate_pop(pool, parent, popsize, maxdepth):
 	population = pool.map(mutate_expr, [(parent, maxdepth) for _ in range(0, popsize)])
 	return population
 
+def random_expr(params):
+	sym, outtype, maxdepth = params
+	return Expr(sym, outtype, 1, maxdepth)
+
+def random_pop(pool, popsize, sym, outtype, maxdepth):
+	population = pool.map(random_expr, [(sym, outtype, maxdepth) for _ in range(0, popsize)])
+	return population
+
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
 # score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
+def evolve_(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
 	assert type(fitness) == type(lambda _:_)
@@ -1120,14 +1131,17 @@ def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, 
 	gencnt = 0
 	pop = []
 	r = Reporter()
-	pool = mp.Pool(mp.cpu_count())
+	globals()['Data'] = data # set to global
+	assert len(Data) == len(data)
+	pool = mp.Pool(mp.cpu_count()+2)
 
 	# generate/mutate functions, test them, keep the best ones
 
 	while pop == []:
-		population = (Expr(sym, outtype, 1, maxdepth) for _ in range(0, popsize))
+		#population = (Expr(sym, outtype, 1, maxdepth) for _ in range(0, popsize))
+		population = random_pop(pool, popsize, sym, outtype, maxdepth)
 		#print('pop=',''.join(['%s invariant=%s\n' % (p,p.is_invariant()) for p in population]))
-		keep = evaluate(pool, population, pop, data, fitness, gencnt)[:popkeep]
+		keep = evaluate(pool, population, pop, fitness, gencnt)[:popkeep]
 		pop = [FamilyMember(ks, None) for ks in keep[:popkeep]]
 		r.show(pop, gencnt, gentotal)
 		gencnt += 1
@@ -1138,21 +1152,20 @@ def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, 
 	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
-		maxd = min(maxdepth, int(2+math.log(gentotal)))
+		maxd = min(maxdepth, int(2+math.log(gentotal+1)))
 		population = mutate_pop(pool, parent.ks.expr, popsize, maxd)
-		keep = evaluate(pool, population, pop, data, fitness, gencnt)[:popkeep]
-		if keep != []:
-			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize) and str(keep[0]) not in parent.children:
-				# never-before-seen reasonable improvement...
-				# NOTE: this allows duplicates, but never from the same parent
-				pop = [FamilyMember(ks, parent) for ks in keep]
-			elif keep[0].score > 0 and gencnt - parent.ks.gencnt >= deadend:
-				# stuck in a deadend...
-				if parent.parent:# and parent.parent.ks.score < len(data): # we're not at roots yet...
-					# roll parent back to grandparent
-					#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
-					pop = [parent.parent]
-					gencnt = parent.parent.ks.gencnt # reset gencnt, otherwise our rollback cascades all the way back
+		keep = evaluate(pool, population, pop, fitness, gencnt)[:popkeep]
+		if (keep != [] and (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize)) and str(keep[0]) not in parent.children:
+			# never-before-seen reasonable improvement...
+			# NOTE: this allows duplicates, but never from the same parent
+			pop = [FamilyMember(ks, parent) for ks in keep]
+		elif (keep == [] or keep[0].score > 0) and gencnt - parent.ks.gencnt >= deadend:
+			# stuck in a deadend...
+			if parent.parent:# and parent.parent.ks.score < len(data): # we're not at roots yet...
+				# roll parent back to grandparent
+				#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
+				pop = [parent.parent]
+				gencnt = parent.parent.ks.gencnt # reset gencnt, otherwise our rollback cascades all the way back
 		r.show(pop, gencnt, gentotal)
 		gencnt += 1
 		gentotal += 1
@@ -1160,37 +1173,33 @@ def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, 
 	print('\ndone', pop[0])
 	return pop[0]
 
+def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
+	try:
+		evolve_(data, fitness, types, popsize, maxdepth, popkeep, deadend, maxsize)
+	except KeyboardInterrupt:
+		print('Ctrl-C eh?')
+		exit()
+
+def fit_tuple1(d, res):
+	return abs(d[1][0]-res[0])
+
+def fit_list1(d, res):
+	return sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res))
+
 if __name__ == '__main__':
 	test()
 
 	evolve( [
-			# expect: sum([x[0]*x[1]+x[2] for x in foo])
-			# GOT: (sum([x[2] for x in foo]) + sum([(x[1] * x[0]) for x in foo]))
-			#      (sum([(x[1] * x[0]) for x in foo]) + sum([x[2] for x in foo]))
-			([(10,3,5)], 10*3+5),
-			([(3,3,1)], 3*3+1),
-			([(2,1,0)], 2*1+0),
-			([(1000,50,55)], 1000*50+55),
-			([(50,1000,55)], 1000*50+55),
-			([(0,0,1000)], 1000),
-		], maxdepth=6)
-
-	evolve( [
-			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
-			# or maybe: sum([x[0]/2 for x in foo])
-			# GOT: (sum([x[0] for x in foo]) / 2)
-			#      (0.5 * sum([x[0] for x in foo]))
-			([(5,0,2,3)], 2.5),
-			([(50,0,50,0)], 25),
-			([(100,100,0,0)], 50),
-			([(2,0,0,2)], 1),
-		], maxdepth=6, popsize=5000)
+			# expect: foo
+			(10, 10),
+			(1e6, 1e6),
+		], popsize=400)
 
 	evolve( [ # ensure we can produce tuple results
 			# expect: (foo,)
 			(100, (100,)),
 			(1000, (1000,)),
-		], popsize=1000, maxdepth=3, fitness=lambda d,res:abs(d[1][0]-res[0]))
+		], popsize=1000, maxdepth=3, fitness=fit_tuple1)
 
 	evolve( [
 			# use len()
@@ -1220,7 +1229,7 @@ if __name__ == '__main__':
 			([1,2,3,4,5], [4,5]),
 			([0,10,1e6,2,3], [10,1e6]),
 			([0,0,0,0,0,0,1,2,3], []),
-		], popsize=1000, fitness=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res)))
+		], popsize=1000, fitness=fit_list1)
 
 	evolve( [
 			# expect: sum([x[0] for x in foo])
@@ -1239,10 +1248,27 @@ if __name__ == '__main__':
 		], popsize=1000)
 
 	evolve( [
-			# expect: foo
-			(10, 10),
-			(1e6, 1e6),
-		], popsize=400)
+			# expect: sum([x[0]*x[1]+x[2] for x in foo])
+			# GOT: (sum([x[2] for x in foo]) + sum([(x[1] * x[0]) for x in foo]))
+			#      (sum([(x[1] * x[0]) for x in foo]) + sum([x[2] for x in foo]))
+			([(10,3,5)], 10*3+5),
+			([(3,3,1)], 3*3+1),
+			([(2,1,0)], 2*1+0),
+			([(1000,50,55)], 1000*50+55),
+			([(50,1000,55)], 1000*50+55),
+			([(0,0,1000)], 1000),
+		], maxdepth=6)
+
+	evolve( [
+			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
+			# or maybe: sum([x[0]/2 for x in foo])
+			# GOT: (sum([x[0] for x in foo]) / 2)
+			#      (0.5 * sum([x[0] for x in foo]))
+			([(5,0,2,3)], 2.5),
+			([(50,0,50,0)], 25),
+			([(100,100,0,0)], 50),
+			([(2,0,0,2)], 1),
+		], maxdepth=6, popsize=5000)
 
 	"""
 	evolve( [
