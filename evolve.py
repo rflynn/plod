@@ -913,7 +913,8 @@ for the Netflix challenge it would be even more challenging...
 WorstScore = float('inf')
 
 # run Expr e(data), score the result
-def run_score(estr, data, fscore, worstscore):
+def run_score(params):
+	estr, data, fscore, worstscore, p = params
 	try:
 		score = 0
 		for d in data:
@@ -936,7 +937,7 @@ def run_score(estr, data, fscore, worstscore):
 		sys.exit(1)
 		# assign worst possible score, keep going
 		score = WorstScore
-	return score
+	return (estr, p, score)
 
 # Expr p × population rankings
 class KeepScore:
@@ -1036,9 +1037,11 @@ def evaluate(population, pop, data, fitness, gencnt):
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
 	# TODO: this loop is what we want to parallelize
-	#pool = mp.Pool(mp.cpu_count())
-	for estr,p in uniq.items():
-		score = run_score(estr, data, fitness, worstscore)
+	pool = mp.Pool(mp.cpu_count())
+	scored = pool.map(run_score, [(estr, data, fitness, worstscore, p) for estr,p in uniq.items()])
+	for estr,p,score in scored:
+	#for estr,p in uniq.items():
+	#	score = run_score(estr, data, fitness, worstscore)
 		if score < worstscore:
 			p = Expr.canonical(p)
 			try:
