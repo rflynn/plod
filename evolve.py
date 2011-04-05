@@ -767,7 +767,8 @@ class Expr(Value):
 		self.op.intype = intypes
 		self.op.type = Type.typevar_replace(self.op.type, tvtypes)
 		#if type(self.op.intype[0]) == tuple and self.op.intype[0][0] == Type.FUN:
-			#print('op.name=%s type=%s op.type=%s op.intype=%s ptypes=%s' % (self.op.name, Type.repr(outtype), Type.repr(self.op.type),Type.repr(self.op.intype), ptypes))
+			#print('op.name=%s type=%s op.type=%s op.intype=%s ptypes=%s' % \
+				# % (self.op.name, Type.repr(outtype), Type.repr(self.op.type),Type.repr(self.op.intype), ptypes))
 			#assert type(self.op.type) != list
 		return tvtypes
 
