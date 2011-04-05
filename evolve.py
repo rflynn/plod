@@ -935,21 +935,6 @@ class KeepScore:
 			return float('inf')
 		return ((float(other.score) / self.score) - 1.) * 100.
 
-# run each candidate against the data, score the results, keep the least-awful scoring functions
-def evaluate(population, data, fscore, gencnt):
-	keep = []
-	uniq = dict((str(e), e) for e in population if not e.is_invariant())
-	for estr,p in uniq.items():
-		score = run_score(estr, data, fscore)
-		if score != WorstScore:
-			p = Expr.canonical(p)
-			try:
-				if not p.is_invariant():
-					keep.append(KeepScore(p, score, gencnt))
-			except AttributeError:
-				pass
-	return sorted(keep)
-
 # KeepScore × Multi-generational logic
 class FamilyMember:
 	def __init__(self, ks, parent):
@@ -1010,14 +995,34 @@ class Reporter:
 		else:
 			return min(maximum, 10 + math.sqrt(9990) + math.log(n-10000))
 
+# run each candidate against the data, score the results, keep the least-awful scoring functions
+def evaluate(population, pop, data, fitness, gencnt):
+	# only even consider keeping someone if it scores better than the worst we've already kept
+	worstscore = pop[-1].ks.score if pop != [] else WorstScore
+	keep = []
+	uniq = dict((str(e), e) for e in population if not e.is_invariant())
+	# TODO: this loop is what we want to parallelize
+	#pool = mp.Pool(mp.cpu_count())
+	for estr,p in uniq.items():
+		score = run_score(estr, data, fitness, worstscore)
+		if score < worstscore:
+			p = Expr.canonical(p)
+			try:
+				if not p.is_invariant():
+					keep.append(KeepScore(p, score, gencnt))
+			except AttributeError:
+				pass
+	return sorted(keep)
+
+
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
 # transform data[n][0] -> data[n][1]
 # NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
 # score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
+def evolve(data, fitness=lambda d,res:abs(d[1]-res), types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
 	# sanity check types and ranges
 	assert type(data[0]) == tuple
-	assert type(score) == type(lambda _:_)
+	assert type(fitness) == type(lambda _:_)
 	assert 1 <= maxdepth < len(Log)
 	assert popsize >= 1
 	assert popkeep >= 1
@@ -1039,7 +1044,7 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 	while pop == []:
 		population = (Expr(sym, outtype, 1, maxdepth) for _ in range(0, popsize))
 		#print('pop=',''.join(['%s invariant=%s\n' % (p,p.is_invariant()) for p in population]))
-		keep = evaluate(population, data, score, gencnt)[:popkeep]
+		keep = evaluate(population, pop, data, fitness, gencnt)[:popkeep]
 		pop = [FamilyMember(ks, None) for ks in keep[:popkeep]]
 		r.show(pop, gencnt, gentotal)
 		gencnt += 1
@@ -1051,7 +1056,7 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 		#print('pop=',[p.ks.expr for p in pop])
 		parent = random.choice(pop)
 		population = (copy.deepcopy(parent.ks.expr).mutate(1, min(maxdepth, int(2+math.log(gentotal)))) for _ in range(0, popsize))
-		keep = evaluate(population, data, score, gencnt)[:popkeep]
+		keep = evaluate(population, pop, data, fitness, gencnt)[:popkeep]
 		if keep != []:
 			if (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize) and str(keep[0]) not in parent.children:
 				# never-before-seen reasonable improvement...
@@ -1073,6 +1078,35 @@ def evolve(data, score=lambda d,res:abs(d[1]-res), types=None, popsize=10000, ma
 
 if __name__ == '__main__':
 	test()
+
+	evolve( [
+			# expect: sum([x[0]*x[1]+x[2] for x in foo])
+			# GOT: (sum([x[2] for x in foo]) + sum([(x[1] * x[0]) for x in foo]))
+			#      (sum([(x[1] * x[0]) for x in foo]) + sum([x[2] for x in foo]))
+			([(10,3,5)], 10*3+5),
+			([(3,3,1)], 3*3+1),
+			([(2,1,0)], 2*1+0),
+			([(1000,50,55)], 1000*50+55),
+			([(50,1000,55)], 1000*50+55),
+			([(0,0,1000)], 1000),
+		], maxdepth=6)
+
+	evolve( [
+			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
+			# or maybe: sum([x[0]/2 for x in foo])
+			# GOT: (sum([x[0] for x in foo]) / 2)
+			#      (0.5 * sum([x[0] for x in foo]))
+			([(5,0,2,3)], 2.5),
+			([(50,0,50,0)], 25),
+			([(100,100,0,0)], 50),
+			([(2,0,0,2)], 1),
+		], maxdepth=6, popsize=5000)
+
+	evolve( [ # ensure we can produce tuple results
+			# expect: (foo,)
+			(100, (100,)),
+			(1000, (1000,)),
+		], popsize=1000, maxdepth=3, fitness=lambda d,res:abs(d[1][0]-res[0]))
 
 	evolve( [
 			# use len()
@@ -1102,7 +1136,7 @@ if __name__ == '__main__':
 			([1,2,3,4,5], [4,5]),
 			([0,10,1e6,2,3], [10,1e6]),
 			([0,0,0,0,0,0,1,2,3], []),
-		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res)))
+		], popsize=1000, fitness=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res)))
 
 	evolve( [
 			# expect: sum([x[0] for x in foo])
@@ -1110,7 +1144,7 @@ if __name__ == '__main__':
 			([(10,1)], 10),
 			([(2000,1)], 2000),
 			([(-2000,1)], -2000),
-		], maxdepth=3, popsize=100)
+		])
 
 	evolve( [
 			# expect: ((foo+foo)+1) or ((foo*2)+1)
@@ -1126,48 +1160,17 @@ if __name__ == '__main__':
 			(1e6, 1e6),
 		], popsize=400)
 
-	evolve( [ # ensure we can produce tuple results
-			# expect: (foo,)
-			(100, (100,)),
-			(1000, (1000,)),
-		], popsize=1000, maxdepth=3, score=lambda d,res:abs(d[1][0]-res[0]))
-
-	evolve( [
-			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
-			# or maybe: sum([x[0]/2 for x in foo])
-			# GOT: (sum([x[0] for x in foo]) / 2)
-			#      (0.5 * sum([x[0] for x in foo]))
-			([(5,0,2,3)], 2.5),
-			([(50,0,50,0)], 25),
-			([(100,100,0,0)], 50),
-			([(2,0,0,2)], 1),
-		], popsize=5000)
-
-	evolve( [ # extract tuple members and re-wrap them
-			# expect: (foo[0]+1, foo[0]+foo[0]+2)
-			# got: ((foo[0] + 1), (2 + (foo[0] + foo[0])))
-			((100,), (101,202)),
-			((1000,), (1001,2002)),
-		], score=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
-
-	evolve( [
-			# expect: sum([x[0]*x[1]+x[2] for x in foo])
-			# GOT: (sum([x[2] for x in foo]) + sum([(x[1] * x[0]) for x in foo]))
-			#      (sum([(x[1] * x[0]) for x in foo]) + sum([x[2] for x in foo]))
-			([(10,3,5)], 10*3+5),
-			([(3,3,1)], 3*3+1),
-			([(2,1,0)], 2*1+0),
-			([(1000,50,55)], 1000*50+55),
-		], maxdepth=6, popsize=3000)
-
+	"""
 	evolve( [
 			# expect: sum([(x[0]+x[1]+x[2]+x[3])/4 for x in foo])
-			# GOT: ((sum([x[3] for x in foo]) / 2) + (sum([x[1] for x in foo]) / sum([5])))
-			#      ((sum([x[3] for x in foo]) / 2) + (sum([x[1] for x in foo]) / 5))
+			# GOT: ((sum([x[3] for x in foo]) / 2) + (sum([x[1] for x in foo]) / 5))
+			#      (sum(reduce(lambda x,y: x, foo)) / 4)
+			#      (reduce(lambda x,y: x, reduce(lambda x,y: x, foo)) / 2)
 			([(0,5,2,3)], 2.5),
 			([(0,0,50,50)], 25),
 			([(2,0,0,2)], 1),
-		], maxdepth=8)
+		])
+	"""
 
 	evolve( [
 			# use datetime
@@ -1200,11 +1203,19 @@ if __name__ == '__main__':
 
 	################ Beyond this point stuff doesn't work
 
+	# FIXME: broken?
+	evolve( [ # extract tuple members and re-wrap them
+			# expect: (foo[0]+1, foo[0]+foo[0]+2)
+			# got: ((foo[0] + 1), (2 + (foo[0] + foo[0])))
+			((100,), (101,202)),
+			((1000,), (1001,2002)),
+		], fitness=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
+
 	"""
 	evolve( [
 			# FIXME: need this exact code to flatten list, but my code can't generate it!
 			# expect: [y for y in x for x in foo]
 			# GOT: 
 			([[1,2,3]], [1,2,3]),
-		], popsize=1000, score=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
+		], popsize=1000, fitness=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
 	"""
