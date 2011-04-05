@@ -454,8 +454,7 @@ class Expr(Value):
 				e = Expr(self.params, self.type, depth, maxdepth)
 				x = tuple(i for i,e in enumerate(e.exprs) if isinstance(e, Value) and e.type == self.type)
 				if x != ():
-					# trim out any too-deep self.exprs
-					e.exprs[random.choice(x)] = Expr.adjdepth(self, depth+1, maxdepth)
+					e.exprs[random.choice(x)] = Expr.adjdepth(self, depth+1, maxdepth) # trim too-deep self.exprs
 				return e
 			elif r < mutation * 0.5:
 				# replace self with parameter
