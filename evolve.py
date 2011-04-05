@@ -318,6 +318,13 @@ Ops = (
 	#Op('mday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.mday' % (x,)),
 	#Op('hour', Type.NUM,	(Type.DATE,),		lambda x:    '%s.hour' % (x,)),
 	#Op('wday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.isoweekday()' % (x,)),
+
+	# common statistical functions
+	#Op('mean', 	Type.NUM,	([Type.NUM],),		lambda x:    'mean(%s)' % (x,)),
+	#Op('median', 	Type.NUM,	([Type.NUM],),		lambda x:    'median(%s)' % (x,)),
+	#Op('mode', 	Type.NUM,	([Type.NUM],),		lambda x:    'mode(%s)' % (x,)),
+	#Op('variance', Type.NUM,	([Type.NUM],),		lambda x:    'variance(%s)' % (x,)),
+	#Op('stddev', 	Type.NUM,	([Type.NUM],),		lambda x:    'stddev(%s)' % (x,)),
 )
 OpOuttypes = [Type.BOOL,Type.NUM]#,[Type.A],[Type.B]]#,Type.B]
 
@@ -330,6 +337,30 @@ def ops_by_outtype(outtype):
 		v = tuple(o for o in Ops if Type.match(o.type, outtype))
 		OpOuttypeDict[hasht] = v
 		return v
+
+def mean(l):
+	return sum(l) / max(1, len(l))
+
+def median(l):
+	v, e = sorted(l), len(l)
+	return float(v[int((e-1)/2)] + v[e//2]) / 2
+
+def mode(l):
+	d = {}
+	for x in l:
+		try:
+			d[x] += 1
+		except KeyError:
+			d[x] = 1
+	return sorted(d.items(), key=lambda x:x[1])[-1][0]
+
+def variance(l):
+	m = mean(l)
+	v = sum([(n-m)**2 for n in l]) / max(1, len(l))
+	return v
+
+def stddev(l):
+	return sqrt(variance(l))
 
 class Lambda(Op):
 	def __init__(self, outtype, intype, params):
