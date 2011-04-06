@@ -7,6 +7,10 @@ simple genetic algorithm framework
 given data, evolve transformation
 lists types assumed homogenous
 tuple types assumed homogenous
+
+TODO:
+	* statistically analyze input beforehand to seed random values
+	* we could add a stage where we iterate through all near-values for literals
 """
 
 import sys
@@ -860,7 +864,6 @@ class Expr(Value):
 				return 1
 
 	# count the number of random invariants present
-	# FIXME: invarcnt=0 (((((((reduce(lambda x,y: x, reduce(lambda x,y: [True], foo)) / log(15)) / log(log(10))) * log(3)) + (37 / 71)) + (sqrt(11) / 101)) + (2 / 90)) + (9 / 100))         
 	@staticmethod
 	def invariant_count(e):
 		try:
@@ -963,7 +966,8 @@ def run_score(params):
 		score = WorstScore
 	except (TypeError,AttributeError):
 		# FIXME: these indicate errors in code generation
-		# FIXME: currently anything with Date type generates these
+		# FIXME: reduce() produces TypeErrors
+		# FIXME: Date type produces AttributeErrors
 		score = WorstScore
 	except:
 		print(estr)
