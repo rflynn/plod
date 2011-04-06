@@ -18,7 +18,6 @@ from math import sqrt,log
 from test import unittest # custom
 from functools import reduce
 from datetime import datetime # we need a datetime type for real-world data
-import multiprocessing as mp
 
 class Type:
 	A     = 0 # TypeVar
@@ -931,15 +930,9 @@ def test():
 	test_map_flatten()
 	print('Tests passed.')
 
-"""
-we'll also need custom datatype:Date and methods
-	Date(year, month=0, day=0, hour=0, min=0, sec=0)
-	==, >, <, >=, <=
-	Date-Date
-	Date.weekday
-
-for the Netflix challenge it would be even more challenging...
-"""
+import multiprocessing as mp
+import hashlib
+import sqlite3
 
 WorstScore = float('inf')
 
@@ -1109,100 +1102,160 @@ def random_pop(pool, popsize, sym, outtype, maxdepth):
 	population = async.get()
 	return population
 
-# where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
-# transform data[n][0] -> data[n][1]
-# NOTE: currently deadend is set to a fixed generational count; it may make more sense instead to also incorporate
-# score; it makes less sense to rewind as quickly to an ancestor with a much worse score
-def evolve_(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
-	# sanity check types and ranges
-	assert type(data[0]) == tuple
-	assert type(fitness) == type(lambda _:_)
-	assert 1 <= maxdepth < len(Log)
-	assert popsize >= 1
-	assert popkeep >= 1
-	# initialize defaults
-	if types == None:
-		intype,outtype = Type.describe(data[0])
-		print('evolve :: %s -> %s' % (Type.repr(intype),Type.repr(outtype)))
-	else:
-		intype,outtype = types
-	assert intype != ()
-	sym = (Variable(intype, 'foo'),)
-	gentotal = 0
-	gencnt = 0
-	pop = []
-	r = Reporter()
-	globals()['Data'] = data # set to global
-	assert len(Data) == len(data)
-	pool = mp.Pool(mp.cpu_count()+2)
-
-	# generate/mutate functions, test them, keep the best ones
-
-	while pop == []:
-		#population = (Expr(sym, outtype, 1, maxdepth) for _ in range(0, popsize))
-		population = random_pop(pool, popsize, sym, outtype, maxdepth)
-		#print('pop=',''.join(['%s invariant=%s\n' % (p,p.is_invariant()) for p in population]))
-		keep = evaluate(pool, population, pop, fitness, gencnt)[:popkeep]
-		pop = [FamilyMember(ks, None) for ks in keep[:popkeep]]
-		r.show(pop, gencnt, gentotal)
-		gencnt += 1
-		gentotal += 1
-
-	# go until we find score=0, then spend at least a few generations trying to simplify
-	# TODO: i think i should iterate from [1..maxdepth] to isolate the most important factor for each depth.
-	while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
-		#print('pop=',[p.ks.expr for p in pop])
-		parent = random.choice(pop)
-		maxd = min(maxdepth, int(2+math.log(gentotal+1)))
-		population = mutate_pop(pool, parent.ks.expr, popsize, maxd)
-		keep = evaluate(pool, population, pop, fitness, gencnt)[:popkeep]
-		if (keep != [] and (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < maxsize)) and str(keep[0]) not in parent.children:
-			# never-before-seen reasonable improvement...
-			# NOTE: this allows duplicates, but never from the same parent
-			pop = [FamilyMember(ks, parent) for ks in keep]
-		elif (keep == [] or keep[0].score > 0) and gencnt - parent.ks.gencnt >= deadend:
-			# stuck in a deadend...
-			if parent.parent:# and parent.parent.ks.score < len(data): # we're not at roots yet...
-				# roll parent back to grandparent
-				#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
-				pop = [parent.parent]
-				gencnt = parent.parent.ks.gencnt # reset gencnt, otherwise our rollback cascades all the way back
-		r.show(pop, gencnt, gentotal)
-		gencnt += 1
-		gentotal += 1
-
-	print('\ndone', pop[0])
-	return pop[0]
-
-def evolve(data, fitness=fit, types=None, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
-	try:
-		evolve_(data, fitness, types, popsize, maxdepth, popkeep, deadend, maxsize)
-	except KeyboardInterrupt:
-		print('Ctrl-C eh?')
-		exit()
-
 def fit_tuple1(d, res):
 	return abs(d[1][0]-res[0])
 
 def fit_list1(d, res):
 	return sum([abs(x-y) for x,y in zip(d[1], res)]) + abs(sum(d[1])-sum(res))
 
+import pickle
+
+class Evolve:
+	"""
+	"""
+	def __init__(self, name=None):
+		self.name = name
+		self.data = None
+		self.fitness = fit # default
+
+	"""
+	data = [(from, to),...] list of transformations
+	"""
+	def setData(self, data, types=None):
+		assert type(data) == list
+		assert type(data[0]) == tuple
+		assert len(data[0]) == 2
+		self.data = data
+		if types == None:
+			self.intype,self.outtype = Type.describe(data[0])
+		else:
+			self.intype,self.outtype = types
+	def setFitness(self, fitness):
+		self.fitness = fitness
+
+	"""
+	given a set of typed data transforms and a bunch of parameters, try to evolve a solution with score=0
+	"""
+	def solve(self, db='evolve.db', resume=True, popsize=10000, maxdepth=5, popkeep=1, deadend=20, maxsize=50):
+		# sanity check types and ranges
+		assert 1 <= maxdepth < len(Log)
+		assert popsize >= 1
+		assert popkeep >= 1
+		print('evolve :: %s -> %s' % (Type.repr(self.intype),Type.repr(self.outtype)))
+		self.db = db
+		self.popsize = popsize
+		self.maxdepth = maxdepth
+		self.popkeep = popkeep
+		self.deadend = deadend
+		self.maxsize = maxsize
+		if resume:
+			self._loadTree()
+		self._evolve()
+
+	def _evolve(self):
+		# initialize defaults
+		sym = (Variable(self.intype, 'foo'),)
+		gentotal = 0
+		gencnt = 0
+		pop = []
+		r = Reporter()
+		globals()['Data'] = self.data # set to global
+		assert len(Data) == len(self.data)
+		pool = mp.Pool(mp.cpu_count())
+
+		while pop == []:
+			population = random_pop(pool, self.popsize, sym, self.outtype, self.maxdepth)
+			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
+			pop = [FamilyMember(ks, None) for ks in keep]
+			r.show(pop, gencnt, gentotal)
+			gencnt += 1
+			gentotal += 1
+
+		# go until we find score=0, then spend at least a few generations trying to simplify
+		# TODO: i think i should iterate from [1..maxdepth] to isolate the most important factor for each depth.
+		while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
+			parent = random.choice(pop)
+			maxd = min(self.maxdepth, int(2+math.log(gentotal+1)))
+			population = mutate_pop(pool, parent.ks.expr, self.popsize, maxd)
+			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
+			pop, gencnt = self._postGen(pop, keep, parent, gencnt)
+			r.show(pop, gencnt, gentotal)
+			gencnt += 1
+			gentotal += 1
+		print('\ndone', pop[0])
+		pool.close()
+		self._saveExpr(pop[0])
+		return pop[0]
+
+	"""
+	after a new generation has been run, decide what to do with it. do we keep the new one? do we roll back to the parent?
+	"""
+	def _postGen(self, pop, keep, parent, gencnt):
+		if (keep != [] and (keep[0] < pop[0].ks and keep[0].pct_improvement(pop[0].ks) >= 1.0 and keep[0].size < self.maxsize)) and str(keep[0]) not in parent.children:
+			# never-before-seen reasonable improvement...
+			# NOTE: this allows duplicates, but never from the same parent
+			pop = [FamilyMember(ks, parent) for ks in keep]
+			self._saveExpr(pop[0])
+		elif pop[0].ks.score > 0 and parent.parent:
+			# calculate how much better we are than our parent; better results take longer to deadend
+			if keep == []:
+				improve = 1
+			else:
+				improve = (parent.ks.score / keep[0].score) * (parent.ks.size / keep[0].size)
+			if gencnt - parent.ks.gencnt >= max(1, log(improve)) * self.deadend:
+				# stuck in a deadend...
+				# roll parent back to grandparent
+				#print('\nrolling back to %s %s%s' % (id(parent.parent), parent.parent.ks.expr, ('.' * 100)))
+				pop = [parent.parent]
+				gencnt = parent.parent.ks.gencnt # reset gencnt, otherwise our rollback cascades all the way back
+		return (pop, gencnt)
+
+	"""
+	given an existing solution with score=0, attempt to reduce size and/or invariant count
+	"""
+	def simplify(self):
+		pass
+
+	"""
+	based on name and data checksum, locate and load our previous working tree from the database
+	"""
+	def _loadTree(self):
+		pass
+
+	"""
+	when we evolve a better Expr, save it to the database
+	"""
+	def _saveExpr(self, ft):
+		print('saveExpr(%s)' % (pickle.dumps(ft.ks.expr)))
+
+	"""
+	cleanup
+	"""
+	def __del__(self):
+		pass
+
 if __name__ == '__main__':
 	test()
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# expect: foo
 			(10, 10),
 			(1e6, 1e6),
-		], popsize=400)
+		])
+	e.solve(popsize=400)
 
-	evolve( [ # ensure we can produce tuple results
+	e = Evolve()
+	e.setData([ # ensure we can produce tuple results
 			# expect: (foo,)
 			(100, (100,)),
 			(1000, (1000,)),
-		], popsize=1000, maxdepth=3, fitness=fit_tuple1)
+		])
+	e.setFitness(fit_tuple1)
+	e.solve(popsize=1000, maxdepth=3)
 
-	evolve( [
+	e = Evolve()
+	e.setData( [
 			# use len()
 			# expect: len(foo) >= 3
 			([1], False),
@@ -1212,9 +1265,11 @@ if __name__ == '__main__':
 			([1,0,0,0], True),
 			([0,0,0], True),
 			([1,1,1], True),
-		], popsize=2000)
+		])
+	e.solve(popsize=2000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# use reduce()
 			# expect: reduce(lambda x,y: x*y, foo, 1)
 			([1,1,1], 1),
@@ -1222,33 +1277,42 @@ if __name__ == '__main__':
 			([1,2,3], 6),
 			([3,3,3], 27),
 			([10,10,10], 1000),
-		], popsize=1000)
+		])
+	e.solve(popsize=1000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# basic filter
 			# expect: [x for x in foo if (x >= 4)]
 			([1,2,3,4,5], [4,5]),
 			([0,10,1e6,2,3], [10,1e6]),
 			([0,0,0,0,0,0,1,2,3], []),
-		], popsize=1000, fitness=fit_list1)
+		])
+	e.setFitness(fit_list1)
+	e.solve(popsize=1000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# expect: sum([x[0] for x in foo])
 			# got: sum([sum([x[0]]) for x in foo])
 			([(10,1)], 10),
 			([(2000,1)], 2000),
 			([(-2000,1)], -2000),
 		])
+	e.solve(popsize=1000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# expect: ((foo+foo)+1) or ((foo*2)+1)
 			# got:    ((1 + foo) + foo)
 			#         (foo + (1 + foo))
 			(10, 21),
 			(1e6, 1e6*2+1),
-		], popsize=1000)
+		])
+	e.solve(popsize=1000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# expect: sum([x[0]*x[1]+x[2] for x in foo])
 			# GOT: (sum([x[2] for x in foo]) + sum([(x[1] * x[0]) for x in foo]))
 			#      (sum([(x[1] * x[0]) for x in foo]) + sum([x[2] for x in foo]))
@@ -1258,9 +1322,11 @@ if __name__ == '__main__':
 			([(1000,50,55)], 1000*50+55),
 			([(50,1000,55)], 1000*50+55),
 			([(0,0,1000)], 1000),
-		], maxdepth=6)
+		])
+	e.solve(maxdepth=6)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# expect: sum([(x[0]+x[1]+x[2]+x[3])/len(x) for x in foo])
 			# or maybe: sum([x[0]/2 for x in foo])
 			# GOT: (sum([x[0] for x in foo]) / 2)
@@ -1269,21 +1335,11 @@ if __name__ == '__main__':
 			([(50,0,50,0)], 25),
 			([(100,100,0,0)], 50),
 			([(2,0,0,2)], 1),
-		], maxdepth=6, popsize=5000)
-
-	"""
-	evolve( [
-			# expect: sum([(x[0]+x[1]+x[2]+x[3])/4 for x in foo])
-			# GOT: ((sum([x[3] for x in foo]) / 2) + (sum([x[1] for x in foo]) / 5))
-			#      (sum(reduce(lambda x,y: x, foo)) / 4)
-			#      (reduce(lambda x,y: x, reduce(lambda x,y: x, foo)) / 2)
-			([(0,5,2,3)], 2.5),
-			([(0,0,50,50)], 25),
-			([(2,0,0,2)], 1),
 		])
-	"""
+	e.solve(maxdepth=6, popsize=5000)
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# use datetime
 			# expect: foo.year >= 2000
 			(datetime(1900,1,1), False),
@@ -1298,8 +1354,23 @@ if __name__ == '__main__':
 			(datetime(2004,1,1), True),
 			(datetime(2005,1,1), True),
 			(datetime(2006,1,1), True),
-		],
-		popsize=10000, maxdepth=5)
+		])
+	#e.setFitness(func)
+	e.solve(popsize=10000, maxdepth=5) #even if we're in the database, start a new tree
+	#e.continue(db='evolve.db', popsize=10000, maxdepth=5) # try to load from database or start fresh
+	#e.simplify(Limit('10 hours')) # evolve, but only to simpler forms, for 10 wallclock hours
+
+	"""
+	evolve( [
+			# expect: sum([(x[0]+x[1]+x[2]+x[3])/4 for x in foo])
+			# GOT: ((sum([x[3] for x in foo]) / 2) + (sum([x[1] for x in foo]) / 5))
+			#      (sum(reduce(lambda x,y: x, foo)) / 4)
+			#      (reduce(lambda x,y: x, reduce(lambda x,y: x, foo)) / 2)
+			([(0,5,2,3)], 2.5),
+			([(0,0,50,50)], 25),
+			([(2,0,0,2)], 1),
+		])
+	"""
 
 	evolve( [
 			# combine reduce() and min()
