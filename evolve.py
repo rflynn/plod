@@ -239,9 +239,13 @@ class Variable(Value):
 		self.val = name
 		self.index = index
 	def __repr__(self):
-		return '%s%s' % (self.val, '' if self.index == [] else '['+(']['.join(str(i) for i in self.index))+']')
+		if type(self.index) == list:
+			idx = '' if self.index == [] else '['+(']['.join(str(i) for i in self.index))+']'
+		elif type(self.index) == str:
+			idx = '.' + self.index
+		return '%s%s' % (self.val, idx)
 	def dump(self):
-		return 'Variable(type=%s val=%s)' % (Type.repr(self.type), self.val) 
+		return 'Variable(type=%s val=%s)' % (Type.repr(self.type), str(self)) 
 	def mutate(self, depth, maxdepth):
 		pass
 	def is_invariant(self):
@@ -304,8 +308,6 @@ def filter_str(x,y):
 	return '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)
 def reduce_str(x,y):
 	return 'reduce(lambda %s: %s, %s)' % (','.join(x.op.paramkeys),x,y)
-def year_str(x,y):
-	return '%s.year' % (x,)
 
 # id(x) -> x. used to wrap a Value/Variable in an Expr
 Id = Op('id', Type.A, (Type.A,), id_str)
@@ -344,14 +346,6 @@ Ops = (
 	# possibly....
 	# this may help us build up ranges/sets; would need logic for list literals though
 	#Op('in',  Type.BOOL,	(Type.A, [Type.A]),		lambda x,y:'(%s in %s)' % (x,y)),
-
-	# date/time-related operations
-	# these must be implemented for real analysis
-	Op('year', Type.NUM,	(Type.DATE,),		year_str),
-	#Op('month', Type.NUM,	(Type.DATE,),		lambda x:    '%s.month' % (x,)),
-	#Op('mday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.mday' % (x,)),
-	#Op('hour', Type.NUM,	(Type.DATE,),		lambda x:    '%s.hour' % (x,)),
-	#Op('wday', Type.NUM,	(Type.DATE,),		lambda x:    '%s.isoweekday()' % (x,)),
 
 	# common statistical functions
 	#Op('mean', 	Type.NUM,	([Type.NUM],),		lambda x:    'mean(%s)' % (x,)),
@@ -848,7 +842,11 @@ class Expr(Value):
 			elif type(p.type) == tuple:
 				# one level deep in tuples
 				pt += [Variable(x, p.val, [i]) for i,x in enumerate(p.type) if Type.match(t, x)]
-			# TODO: datetime?
+			elif p.type == Type.DATE:
+				pt += [Variable(Type.NUM, p.val, 'year'),
+				       Variable(Type.NUM, p.val, 'month')]
+				       #Variable(Type.NUM, p.val, 'mday'),
+				       #Variable(Type.NUM, p.val, 'isoweekday()')]
 		return tuple(pt)
 
 	# count the number of total nodes
