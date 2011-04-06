@@ -1078,7 +1078,8 @@ def evaluate(pool, population, pop, fitness, gencnt):
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
 	# TODO: figure out how to avoid copying data; it will always be the same
-	scored = pool.map(run_score, [(estr, fitness, worstscore, p) for estr,p in uniq.items()])
+	async = pool.map_async(run_score, ((estr, fitness, worstscore, p) for estr,p in uniq.items()))
+	scored = async.get()
 	for estr,p,score in scored:
 		if score < worstscore:
 			p = Expr.canonical(p)
@@ -1095,7 +1096,8 @@ def mutate_expr(params):
 	return e.mutate(1, maxdepth)
 
 def mutate_pop(pool, parent, popsize, maxdepth):
-	population = pool.map(mutate_expr, [(parent, maxdepth) for _ in range(0, popsize)])
+	async = pool.map_async(mutate_expr, [(parent, maxdepth) for _ in range(0, popsize)])
+	population = async.get()
 	return population
 
 def random_expr(params):
@@ -1103,7 +1105,8 @@ def random_expr(params):
 	return Expr(sym, outtype, 1, maxdepth)
 
 def random_pop(pool, popsize, sym, outtype, maxdepth):
-	population = pool.map(random_expr, [(sym, outtype, maxdepth) for _ in range(0, popsize)])
+	async = pool.map_async(random_expr, [(sym, outtype, maxdepth) for _ in range(0, popsize)])
+	population = async.get()
 	return population
 
 # where the magic happens. given some data to transform, some types and a scoring function, evolve code to 
