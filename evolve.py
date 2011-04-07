@@ -10,8 +10,26 @@ tuple types assumed homogenous
 
 TODO:
 	* statistically analyze input beforehand to seed random values
-	* we could add a stage where we iterate through all near-values for literals
+
+		What I really want for Expr variables/values is to associate value
+		distributions with them, to seed/influence random values
+
+		datetime:foo
+			num:foo.year (min=x max=y vals={...})
+			num:foo.month (min=x max=y vals={...})
+			num:foo.day (min=x max=y vals={...})
+		then the question is how to use the associated distributions?
+		currently there is no tracking of what i'm comparing
+
+	* serialize Expr to sqlite3 database so as to persist complex calculations
+	  between program invocations
+
+	* allow human intervention. allow a human to retrieve, edit and propose a
+	  mutation to an existing Expr. if better, integrate into the Expr's tree
 """
+
+UsePool = True
+Debug = False
 
 import sys
 import copy
@@ -43,7 +61,7 @@ class Type:
 	def can_literal(t):
 		if t in (Type.BOOL,Type.NUM):
 			return True
-		elif type(t) in (tuple,list):
+		elif type(t) in (tuple,):
 			return all([Type.can_literal(x) for x in t])
 		return False
 
@@ -84,6 +102,8 @@ class Type:
 				return '[' + (Type.repr(t[0]) if t != [] else '') + ']'
 			elif t is None:
 				return 'None'
+			elif type(t) == str:
+				return 'Str'
 
 	# return a list of all unique typevars in a potentially-multi-level type signature
 	@staticmethod
@@ -103,10 +123,10 @@ class Type:
 
 	# given a type signature and a tvs=dict{tv:type} perform replacement
 	@staticmethod
-	def typevar_replace(typesig, tvs):
+	def typevar_replace(typesig, tvs, depth=0):
 		#print('typevar_replace typesig=',typesig,'tvs=',tvs)
 		if type(typesig) == list:
-			return [Type.typevar_replace(t, tvs) for t in typesig]
+			return [Type.typevar_replace(t, tvs, depth+1) for t in typesig]
 		elif type(typesig) == tuple:
 			x = tuple(Type.typevar_replace(t, tvs) for t in typesig)
 			#print('x=',x)
@@ -115,17 +135,21 @@ class Type:
 			k = typesig
 			if type(k) == list:
 				k = tuple(k)
-			return tvs[k]
+			x = tvs[k]
+			while depth > 0 and type(x) == list:
+				x = x[0]
+				depth -= 1
+			return x
 		else:
 			return typesig
 
-	def encode_hashable_lists(foo):
-		if type(foo) == list:
-			return ('list', tuple(Type.encode_hashable_lists(f) for f in foo))
-		elif type(foo) == tuple:
-			return tuple(Type.encode_hashable_lists(f) for f in foo)
+	def encode_hashable_lists(x):
+		if type(x) == list:
+			return ('list', tuple(Type.encode_hashable_lists(f) for f in x))
+		elif type(x) == tuple:
+			return tuple(Type.encode_hashable_lists(f) for f in x)
 		else:
-			return foo
+			return x
 
 	# return a set() of all non-TypeVar types used
 	# i need to distinguish between list and tuples explicitly, and python's set() cannot
@@ -159,9 +183,12 @@ class Type:
 
 	# return a set of non-TypeVar types included in the arbitrary type signature 't'
 	@staticmethod
-	def setreal(t):
+	def listreal(t):
 		if Type.is_scalar(t):
 			return [t]
+		if Type.is_typevar(t):
+			return []
+		"""
 		elif type(t) in (tuple,list) and t != () and t != [] and t[0] != Type.FUN:
 			def iter_flatten(iterable):
 				it = iter(iterable)
@@ -173,6 +200,20 @@ class Type:
 						yield e
 			return set([i for i in iter_flatten(t) if Type.is_scalar(i)])
 		return []
+		"""
+		pt = []
+		for p in t:
+			if Type.is_scalar(p):
+				pt.append(p)
+			elif type(p) == tuple:
+				for i in range(0, len(p)):
+					if not Type.is_typevar(p[i]):
+						pt.append(p[i])
+			elif type(p) == list:
+				pt.append(p)
+			elif type(p) == Type.DATE:
+				pass # FIXME: TODO
+		return pt
 
 	# given a realized outtype, calculate the replacement that will transform the typevar into it
 	# given ([4], [A]) i must calculate A=4
@@ -194,16 +235,46 @@ def test_type_calculateReplacement():
 			 ([Type.BOOL],			([[Type.BOOL]],[Type.A])),
 			])
 
-def test_type_setreal():
-	assert unittest(Type.setreal,
-			[(set(),			((Type.A,),)),
-			 ({Type.BOOL},			((Type.BOOL,),)),
-			 ({Type.NUM},			((Type.NUM,),)),
-			 ({Type.BOOL,Type.NUM},		((Type.NUM,Type.BOOL),)),
-			 ({Type.NUM},			(([Type.NUM],),)),
-			 ({Type.NUM},			(([[Type.NUM]],),)),
-			 ({Type.BOOL},			((Type.BOOL,Type.BOOL),)),
+def test_type_listreal():
+	assert unittest(Type.listreal,
+			[([],				((Type.A,),)),
+			 ([Type.BOOL],			((Type.BOOL,),)),
+			 ([Type.NUM],			((Type.NUM,),)),
+			 ([Type.NUM,Type.BOOL],		((Type.NUM,Type.BOOL),)),
+			 ([[Type.NUM]],			(([Type.NUM],),)),
+			 ([[[Type.NUM]]],		(([[Type.NUM]],),)),
+			 ([Type.BOOL,Type.BOOL],	((Type.BOOL,Type.BOOL),)),
 			])
+
+"""
+Distribution: Value x Data
+Compile statistical information about our input so as to generate more useful Exprs
+TODO: use a set() if values only appear once; i assume it'll use less memory
+"""
+class Dist:
+	def __init__(self, l=[]):
+		self.val = {}
+		if l != [] and type(l[0]) != list:
+			for v in l:
+				try:
+					self.val[v] += 1
+				except KeyError:
+					self.val[v] = 1
+		k = self.val.keys()
+		try:
+			self.min = min(k)
+		except ValueError:
+			self.min = None
+		try:
+			self.max = max(k)
+		except ValueError:
+			self.max = None
+	def random(self):
+		if self.val:
+			return random.choice(list(self.val.keys()))
+		return 2
+	def __repr__(self):
+		return 'Dist(min=%s max=%s keys=%s val=%s)' % (self.min, self.max, self.val.keys(), self.val)
 
 # un-named invariant type:value pair.
 # only used directly for generating the occasional random scalar value
@@ -224,13 +295,55 @@ class Value:
 		if type == Type.NUM:
 			#return random.randint(1,2)
 			return round(abs(random.gauss(0,50)))
-
 		elif type == Type.BOOL:
 			return random.randint(0,1) == 0
 		else:
 			return val
-	def mutate(self, depth, maxdepth):
-		self.val = Value.randomval(self.type, self.val)
+	def mutate(self, depth, maxdepth, dist=None):
+		if self.type == Type.NUM and type(self.val) in (float,int):
+			self.val = round(self.val + random.gauss(0,10), 1) # tweak by random amount
+		else:
+			self.val = Value.randomval(self.type, self.val)
+
+	"""
+	list all possible parameters and create a histogram of their values
+	"""
+	@staticmethod
+	def analyze_params(params, data):
+		h = dict()
+		if type(data[0]) in (float,int,bool):
+			h = Dist(data)
+		elif type(data[0]) == datetime:
+			h['year'] = Dist([d.year for d in data])
+			h['month'] = Dist([d.month for d in data])
+			h['day'] = Dist([d.day for d in data])
+		elif type(data[0]) == tuple:
+			h = tuple(Dist(d[i] for d in data) for i in range(0, len(data[0])))
+		elif type(data[0]) == list:
+			pass
+		else:
+			pass
+		return h
+
+	"""
+	merge Dist()s by Type; less specific and useful, but easier to shoehorn into existing Expr generation
+	"""
+	@staticmethod
+	def type_dist(data):
+		h = [Dist()] * 6 # h[Type.XXX]
+		if type(data[0]) == tuple:
+			for i in range(0, len(data[0])):
+				t = Type.describe(data[0][i])
+				if Type.is_scalar(t):
+					h[t] = Dist([d[i] for d in data])
+				# FIXME: need to merge, currently we overwrite
+		elif type(data[0]) == list:
+			pass
+		elif type(data[0]) == datetime:
+			h[Type.NUM] = Dist([d.year for d in data]+[d.month for d in data]+[d.day for d in data])
+		else:
+			h[Type.describe(data[0])] = Dist(data)
+		return h
 
 # a name:type pair variable reference
 # 'val' is actually variable name
@@ -249,10 +362,13 @@ class Variable(Value):
 		return '%s%s' % (self.val, idx)
 	def dump(self):
 		return 'Variable(type=%s val=%s)' % (Type.repr(self.type), str(self)) 
-	def mutate(self, depth, maxdepth):
+	def mutate(self, depth, maxdepth, dist=None):
 		pass
 	def is_invariant(self):
 		return False
+
+def list_intersect(foo, bar):
+	return [x for x in foo if x in bar]
 
 # represents a transformation operation; a function
 class Op:
@@ -261,15 +377,16 @@ class Op:
 		self.type = outtype
 		self.intype = intype
 		self.repr = repr
-		# TODO: we can greatly simplify Expr() by pre-calculating a bunch of stuff here, also globally about Ops
-		self.outset = Type.setreal(outtype)
-		self.inset = Type.setreal(intype)
+		# TODO: we can greatly simplify Expr by pre-calculating a bunch of stuff here, also globally about Ops
+		self.outset = Type.listreal(outtype)
+		self.inset = Type.listreal(intype)
 	def __repr__(self):
 		return '%s %s%s' % (Type.repr(self.type), self.name, Type.repr(self.intype))
 	# given a set of all possible available types from parameters and other function's output types, see if we match
 	def inTypesMatch(self, availableTypes):
-		#print(self.name,'inTypesMatch(inset=',self.inset,',availableTypes=',availableTypes,'availableTypes',availableTypes,'&=',self.inset & availableTypes,')')
-		return self.inset == set() or (self.inset & availableTypes) == self.inset
+		# FIXME: i'm cheating to match any list-taking functions, since we know that map/filter can xform anything
+		islist = any(type(a) == list for a in availableTypes)
+		return (islist and self.name in ('map','filter','sum','len')) or list_intersect(self.inset, availableTypes) == self.inset
 	@staticmethod
 	def copy(op):
 		if op.name in ('gte','len','map','filter','reduce'):
@@ -281,10 +398,15 @@ class Op:
 		return op
 
 def id_str(x):
-	if type(x) == float and x == int(x):
-		# reduce '0.0' to '0'
-		x = int(x)
-	return str(x)
+	s = str(x)
+	try:
+		f = float(s)
+		# reduce 'N.0' to 'N'
+		if f == int(f):
+			s = str(int(f))
+	except:
+		pass
+	return s
 def gte_str(x,y):
 	return '(%s >= %s)' % (x,y)
 def add_str(x,y):
@@ -309,8 +431,8 @@ def map_str(x,y):
 	return '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)
 def filter_str(x,y):
 	return '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)
-def reduce_str(x,y):
-	return 'reduce(lambda %s: %s, %s)' % (','.join(x.op.paramkeys),x,y)
+def reduce_str(x,y,z):
+	return 'reduce(lambda %s: %s, %s, %s)' % (','.join(x.op.paramkeys),x,y,z)
 
 # id(x) -> x. used to wrap a Value/Variable in an Expr
 Id = Op('id', Type.A, (Type.A,), id_str)
@@ -341,10 +463,18 @@ Ops = (
 	Op('sum', Type.NUM,	([Type.NUM],),			sum_str),
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	map_str),
 	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),	filter_str),
-	Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A]),	reduce_str),
+
+	# reduce is a tricky function because it requires a list of len() >= 2
+	# most of the code that is generated with it, as it is, is bogus
+	# perhaps i should outlaw list literals?
+	#Op('reduce', Type.B,	((Type.FUN,Type.B,(Type.B,Type.A)), [Type.A], Type.B),	reduce_str),
+
 	#Op('map-flatten', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [[Type.A]]),
 		#lambda x,y: '[%s for %s in %s for %s in %s]' % (x,','.join(x.op.paramkeys),y,x,','.join(x.op.paramkeys))),
 		#[item for sublist in l for item in sublist]
+
+	#Op('any', Type.BOOL,	[Type.BOOL],	any_str),
+	#Op('all', Type.BOOL,	[Type.BOOL],	all_str),
 
 	# possibly....
 	# this may help us build up ranges/sets; would need logic for list literals though
@@ -361,7 +491,7 @@ OpOuttypes = [Type.BOOL,Type.NUM]#,[Type.A],[Type.B]]#,Type.B]
 
 OpOuttypeDict = {} # cache Op outtype lookup
 def ops_by_outtype(outtype):
-	hasht = outtype if type(outtype) != list else Type.encode_hashable_lists(outtype)
+	hasht = Type.encode_hashable_lists(outtype)
 	try:
 		return OpOuttypeDict[hasht]
 	except KeyError:
@@ -415,9 +545,10 @@ class Expr(Value):
 	# expression may be arbitrarily complex, but may only reference parameters, pre-defined Ops and random literals
 	# @params tuple(Variable)
 	# @outtype is a realized Type.X type, not a TypeVar.
-	
-	def __init__(self, params, outtype, depth=1, maxdepth=5):
-		#print('Expr(params=',[p.dump() for p in params],'outtype=',Type.repr(outtype),'depth=',depth,')')
+
+	def __init__(self, params, outtype, maxdepth=5, depth=1, dist=None):
+		if Debug:
+			print('Expr(params=',[p.dump() for p in params],'outtype=',Type.repr(outtype),'depth=',depth,')')
 		self.params = params
 		self.type = copy.copy(outtype)
 		self.exprs = []
@@ -431,26 +562,38 @@ class Expr(Value):
 			#print('Lambda inp=%s outp=%s lparams=%s' % \
 				#(Type.repr(inp), Type.repr(outp), [p.dump() for p in lparams]))
 			self.op = Lambda(outp, inp, lparams)
-			self.exprs = [Expr(lparams, outp, depth+1, maxdepth)]
+			self.exprs = [Expr(lparams, outp, maxdepth, depth+1)]
 			return
 
 		"""
 		The model we really want is a graph data structure
 		Nodes would represent sources of data (functions and parameters)
 		Paths would represent the ability to use those functions
-
 		This model would solve several existing problems at once. How to most-easily construct it?
-		
 		"""
 
 		opt = ops_by_outtype(outtype)
-		#print('outtype=',Type.repr(outtype),'opt=',opt)
+		#print('  outtype=',Type.repr(outtype),'opt=',opt)
 
 		paramtypes = [x.type for x in Expr.params_by_type(params, Type.A)]
-		optypes = OpOuttypes if depth < maxdepth else []
-		availableTypes = paramtypes + optypes
-		availableTypeset = Type.setreal(availableTypes)
-		okops = tuple(o for o in opt if o.inTypesMatch(availableTypeset))
+		# at the top level only honor parameter types; this reduces the chance of generating useless invariant Exprs
+		availableTypes = paramtypes + (OpOuttypes if depth > 1 and depth < maxdepth else [])
+		if Debug:
+			print(' availableTypes=',availableTypes)
+		# this is the problem: we dig down into complex types to their scalar components. we don't want to go
+		# that deep. we should only look one level deep to match 'params_by_type'
+		availableTypelist = Type.listreal(availableTypes)
+		if Debug:
+			print(' availableTypelist=',availableTypelist)
+
+		"""
+		FIXME: given a complex list param type i want sum([NUM]) to match; however it has to be indirect:
+		foo:[(Num,Num)] -> [Num] map([(Num,Num)]) -> sum([Num])
+		this indirect matching is going to require a more complex graph-based approach
+		"""
+		okops = tuple(o for o in opt if o.inTypesMatch(availableTypelist))
+		if Debug:
+			print('  outtype=',Type.repr(outtype),'params=',[p.dump() for p in params],'okops=',okops)
 
 		r = random.random()
 		if depth + 1 >= maxdepth or okops == () or r < depth / maxdepth and (outtype in paramtypes or Type.can_literal(outtype)):
@@ -462,11 +605,14 @@ class Expr(Value):
 			self.op = Id
 			if (pt == () or r < depth / maxdepth / 10) and Type.can_literal(outtype):
 				if Type.is_scalar(outtype):
-					self.exprs = [Value(outtype)] # random literal
+					if dist:
+						self.exprs = [Value(outtype, dist[outtype].random())]
+					else:
+						self.exprs = [Value(outtype)] # random literal
 				elif type(outtype) == tuple: # tuple literal
-					self.exprs = [tuple(Expr(params, t, depth+1, maxdepth) for t in outtype)]
+					self.exprs = [tuple(Expr(params, t, maxdepth, depth+1, dist=dist) for t in outtype)]
 				elif type(outtype) == list: # list literal
-					self.exprs = [[Expr(params, t, depth+1, maxdepth) for t in outtype]]
+					self.exprs = [[Expr(params, t, maxdepth, depth+1, dist=dist) for t in outtype]]
 				else:
 					print('not expecting outtype=',Type.repr(outtype))
 					assert False
@@ -483,21 +629,19 @@ class Expr(Value):
 
 			self.op = Op.copy(random.choice(okops))
 
-			#if self.op.name == 'year':
-				#print('year availableTypeset=',availableTypeset)
-				#print('year outtype=',Type.repr(outtype),'params=',[p.dump() for p in params],'okops=',okops)
-
-			#print('before self.op=',self.op,'outtype=',Type.repr(outtype))
+			if Debug:
+				print('  before self.op=',self.op,'outtype=',Type.repr(outtype))
 			tvtypes = self.enforceTypeVars(outtype, availableTypes)
-			#print('  after self.op=',self.op,'outtype=',Type.repr(outtype),'tvtypes=',tvtypes)
-			#assert self.op.type == outtype
-			self.exprs = [Expr(params, it, depth+1, maxdepth) for it in self.op.intype]
+			if Debug:
+				print('  after self.op=',self.op,'outtype=',Type.repr(outtype),'tvtypes=',tvtypes)
+			assert self.op.type == outtype
+			self.exprs = [Expr(params, it, maxdepth, depth+1, dist=dist) for it in self.op.intype]
 
 	# randomly mutate Expr and/or sub-expressions
 	# it is important to potentially preserve existing Exprs because only high-scoring Exprs get mutated, so what we have
 	# isn't too bad in the first place. we must be able to move Expr between levels, replacing operations with their parameters
 	# and vice versa, replacing random invariants
-	def mutate(self, depth, maxdepth):
+	def mutate(self, maxdepth, depth, dist=None):
 		mutation = 0.8
 		r = random.random()
 		if r < mutation: # mutate self
@@ -509,11 +653,11 @@ class Expr(Value):
 					elif len(self.exprs) > 2 and self.exprs[1].type == self.exprs[2].type:
 						self.exprs[1:3] = self.exprs[2], self.exprs[1]
 				else:
-					self = Expr(self.params, self.type, depth, maxdepth)
+					self = Expr(self.params, self.type, maxdepth, depth, dist=dist)
 			elif r < mutation * 0.25:
 				# preserve self as parameter to random new Expr 
 				# x+(y+z) -> e+(x+z) | e+(y+x)
-				e = Expr(self.params, self.type, depth, maxdepth)
+				e = Expr(self.params, self.type, maxdepth, depth, dist=dist)
 				x = tuple(i for i,e in enumerate(e.exprs) if isinstance(e, Value) and e.type == self.type)
 				if x != ():
 					e.exprs[random.choice(x)] = Expr.adjdepth(self, depth+1, maxdepth) # trim too-deep self.exprs
@@ -525,16 +669,16 @@ class Expr(Value):
 				if type(y) == Expr and y.type == self.type:
 					self = y
 				else:
-					self = Expr(self.params, self.type, depth, maxdepth)
+					self = Expr(self.params, self.type, maxdepth, depth, dist=dist)
 			else:
 				# replace self with completely random new Expr
-				self = Expr(self.params, self.type, depth, maxdepth)
+				self = Expr(self.params, self.type, maxdepth, depth, dist=dist)
 		else: # maybe mutate child
 			mutatable = tuple(e for e in self.exprs if hasattr(e,'mutate'))
 			if mutatable != ():
-				random.choice(mutatable).mutate(depth+1, maxdepth)
+				random.choice(mutatable).mutate(maxdepth, depth+1, dist=dist)
 			else:
-				self = Expr(self.params, self.type, depth, maxdepth)
+				self = Expr(self.params, self.type, maxdepth, depth, dist=dist)
 		return self
 
 	# our depth has changed; trim any sub-Exprs that violate maxdepth
@@ -623,6 +767,7 @@ class Expr(Value):
 				if str(self.exprs[0]) == ','.join(self.exprs[0].op.paramkeys):
 					self = self.exprs[1]
 		elif self.op.name == 'filter':
+			# TODO: [x for x in y if True >= False] -> y
 			#print('filter exprs[0]=%s' % (self.exprs[0],))
 			v = str(self.exprs[0])
 			if v == 'True':
@@ -739,8 +884,12 @@ class Expr(Value):
 		elif self.op.name == 'len':
 			# realize len([...])
 			e0 = self.exprs[0]
-			if type(e0) == Expr and e0.op is Id and type(e0.exprs[0]) == list:
-				self.op, self.exprs = Id, [Value(Type.NUM, len(e0.exprs[0]))]
+			if type(e0) == Expr and e0.op is Id:
+				if type(e0.exprs[0]) == Expr:
+					self = e0.exprs[0][0]
+					self.op, self.exprs = Id, [Value(Type.NUM, len(e0.exprs[0]))]
+				elif type(e0.exprs[0]) == Value:
+					self.op, self.exprs = Id, [Value(Type.NUM, len(e0.exprs[0].val))]
 		elif self.op.name in ('min','max'):
 			# min(x,x) | max(x,x) -> x
 			try:
@@ -752,19 +901,11 @@ class Expr(Value):
 		elif self.op.name == 'sum':
 			# sum([x]) == x
 			e0 = self.exprs[0]
-			if type(e0) == Expr and e0.op is Id and type(e0.exprs[0]) == list:
-				if len(e0.exprs[0]) == 1:
-					self = self.exprs[0].exprs[0][0]
-				elif len(e0.exprs[0]) == 0:
-					self.op, self.exprs = Id, [Value(Type.NUM, 0)]
-			elif type(e0) == list:
-				if len(e0) == 0:
-					self.op, self.exprs = Id, [Value(Type.NUM, 0)]
-				elif len(e0) == 1:
-					if type(e0[0]) == Expr:
-						self = e0[0]
-					elif type(e0[0]) == Value:
-						self.op, self.exprs = Id, [Value(Type.NUM, e0[0])]
+			if type(e0) == Expr and e0.op is Id:
+				if type(e0.exprs[0]) == Expr:
+					self = e0.exprs[0][0]
+				elif type(e0.exprs[0]) == Value:
+					self.op, self.exprs = Id, [Value(Type.NUM, sum(e0.exprs[0].val))]
 			# TODO:...
 			# sum(x[y] for x in foo) + sum(x[z] for x in foo) -> sum(x[y]+x[z] for y in foo)
 		elif self.op.name == 'reduce':
@@ -790,31 +931,31 @@ class Expr(Value):
 	def enforceTypeVars(self, outtype, ptypes):
 		tvs = Type.typevars((self.op.intype, self.op.type))
 		tvtypes = dict([(tv,None) for tv in tvs])
-		#ptypes = tuple([x.type for x in params] + (OpOuttypes if depth+1 < maxdepth else []))
 
 		# FIXME: this shit is all hard-coded to very specific higher-order function signatures...
 		if type(self.op.intype[0]) == tuple and self.op.intype[0][0] == Type.FUN:
 			# if we're a lambda then set output type
 			if Type.is_typevar(self.op.type) or (type(self.op.type) == list and Type.is_typevar(self.op.type[0])):
-				def first(x):
-					try:
-						return x[0]
-					except:
-						return x
-				k = first(self.op.type)
-				tvtypes[k] = first(outtype)
+				k = self.op.type[0] if type(self.op.type) == list else self.op.type
+				tvtypes[k] = outtype[0] if type(outtype) == list else outtype
 				k = self.op.intype[1][0]
-				while type(k) == list:
-					k = k[0]
+				#while type(k) == list:
+				#	k = k[0]
 				x = random.choice(ptypes)
 				if type(x) == list:
 					x = x[0]
 				tvtypes[k] = x
+				# FIXME: ok, so reduce() is broken because sometimes we choose it to return a list, but it never really does.
+				# either we need to fix it so it doesn't get chosen, or fix it so it can return a list...
+				if Debug:
+					print('    lambda tvtypes=',tvtypes)
 		else:
 			# select random type for each, based on paramtypes
 			for tv in tvtypes.keys():
 				tvtypes[tv] = outtype if tv == self.op.type else random.choice(ptypes)
 
+		if Debug:
+			print('    calculatedReplacement outtype=',outtype,'self.op.type=',self.op.type)
 		# enforce consistent outtype
 		# FIXME: does this negate the above special-case code for FUNs?
 		x = Type.calculateReplacement(outtype, self.op.type)
@@ -822,12 +963,13 @@ class Expr(Value):
 			y = Type.typevars(self.op.type)[0]
 			tvtypes[y] = x
 
-		#print('op.name=%s outtype=%s self.op.intype=%s ptypes=%s' % (self.op.name, Type.repr(outtype), Type.repr(self.op.intype), ptypes))
 		intypes = Type.typevar_replace(self.op.intype, tvtypes)
 		if type(self.op.intype) == tuple:
 			intypes = tuple(intypes)
 		self.op.intype = intypes
 		self.op.type = Type.typevar_replace(self.op.type, tvtypes)
+		if Debug:
+			print('    op.name=%s self.op.type=%s self.op.intype=%s ptypes=%s tvtypes=%s' % (self.op.name, Type.repr(self.op.type), Type.repr(self.op.intype), ptypes, tvtypes))
 		#if type(self.op.intype[0]) == tuple and self.op.intype[0][0] == Type.FUN:
 			#print('op.name=%s type=%s op.type=%s op.intype=%s ptypes=%s' % \
 				# % (self.op.name, Type.repr(outtype), Type.repr(self.op.type),Type.repr(self.op.intype), ptypes))
@@ -840,16 +982,17 @@ class Expr(Value):
 		#print('params_by_type params=',params)
 		pt = []
 		for p in params:
-			if Type.match(t, p.type):
-				pt.append(p)
-			elif type(p.type) == tuple:
+			if type(p.type) == tuple:
 				# one level deep in tuples
 				pt += [Variable(x, p.val, [i]) for i,x in enumerate(p.type) if Type.match(t, x)]
+			elif Type.match(t, p.type):
+				pt.append(p)
 			elif p.type == Type.DATE:
-				pt += [Variable(Type.NUM, p.val, 'year'),
-				       Variable(Type.NUM, p.val, 'month')]
-				       #Variable(Type.NUM, p.val, 'mday'),
-				       #Variable(Type.NUM, p.val, 'isoweekday()')]
+				if Type.match(t, Type.NUM):
+					pt += [Variable(Type.NUM, p.val, 'year'),
+					       Variable(Type.NUM, p.val, 'month'),
+					       Variable(Type.NUM, p.val, 'day')]
+					       #Variable(Type.NUM, p.val, 'isoweekday()')]
 		return tuple(pt)
 
 	# count the number of total nodes
@@ -921,7 +1064,7 @@ def test_map_flatten():
 
 def test():
 	test_type_describe()
-	test_type_setreal()
+	test_type_listreal()
 	test_type_can_literal()
 	test_type_calculateReplacement()
 	test_expr_invariant()
@@ -951,11 +1094,11 @@ Data = []
 def run_score(params):
 	#estr, data, fitness, worstscore, p = params
 	estr, fitness, worstscore, p = params
+	fn = eval('lambda foo:' + estr)
 	try:
 		score = 0
 		for d in globals()['Data']:
-			# TODO: is there a more efficient way than eval()ing once per d? maybe functools.partial?
-			res = eval('lambda foo:'+estr)(d[0])
+			res = fn(d[0])
 			fs = fitness(d, res)
 			score += fs
 			if score >= worstscore:
@@ -964,7 +1107,8 @@ def run_score(params):
 		# ZeroDiv: /0 or %0
 		# ValueError: log(0)
 		score = WorstScore
-	except (TypeError,AttributeError):
+	except (TypeError,AttributeError) as e:
+		#print('%s: %s' % (e, estr))
 		# FIXME: these indicate errors in code generation
 		# FIXME: reduce() produces TypeErrors
 		# FIXME: Date type produces AttributeErrors
@@ -985,6 +1129,7 @@ class KeepScore:
 		self.gencnt = gencnt
 		self.size = Expr.size(expr)
 		self.invarcnt = Expr.invariant_count(expr)
+		self.str = str(expr)
 	def __repr__(self):
 		return 'score=%g size=%u invarcnt=%u %s' % \
 			(self.score, self.size, self.invarcnt, self.expr)
@@ -997,6 +1142,8 @@ class KeepScore:
 		if self.invarcnt != other.invarcnt: # then fewer invariants...
 			# TODO: perhaps favor simpler/lower invariants over larger ones?
 			return self.invarcnt < other.invarcnt
+		if len(self.str) != len(other.str):
+			return len(self.str) < len(other.str)
 		if self.gencnt != other.gencnt: # then older over newer...
 			return self.gencnt < other.gencnt
 		return False
@@ -1075,8 +1222,10 @@ def evaluate(pool, population, pop, fitness, gencnt):
 	keep = []
 	uniq = dict((str(e), e) for e in population if not e.is_invariant())
 	# TODO: figure out how to avoid copying data; it will always be the same
-	async = pool.map_async(run_score, ((estr, fitness, worstscore, p) for estr,p in uniq.items()))
-	scored = async.get()
+	if UsePool:
+		scored = pool.map(run_score, ((estr, fitness, worstscore, p) for estr,p in uniq.items()))
+	else:
+		scored = [run_score((estr, fitness, worstscore, p)) for estr,p in uniq.items()]
 	for estr,p,score in scored:
 		if score < worstscore:
 			p = Expr.canonical(p)
@@ -1089,21 +1238,25 @@ def evaluate(pool, population, pop, fitness, gencnt):
 
 # given an existing Expr e, generate a random mutation
 def mutate_expr(params):
-	e, maxdepth = params
-	return e.mutate(1, maxdepth)
+	e, maxdepth, dist = params
+	return e.mutate(maxdepth, 1, dist=dist)
 
-def mutate_pop(pool, parent, popsize, maxdepth):
-	async = pool.map_async(mutate_expr, [(parent, maxdepth) for _ in range(0, popsize)])
-	population = async.get()
+def mutate_pop(pool, parent, popsize, maxdepth, dist):
+	if UsePool:
+		population = pool.map(mutate_expr, [(parent, maxdepth, dist) for _ in range(0, popsize)])
+	else:
+		population = [mutate_expr((copy.deepcopy(parent), maxdepth, dist)) for _ in range(0, popsize)]
 	return population
 
 def random_expr(params):
-	sym, outtype, maxdepth = params
-	return Expr(sym, outtype, 1, maxdepth)
+	sym, outtype, maxdepth, dist = params
+	return Expr(sym, outtype, maxdepth, dist=dist)
 
-def random_pop(pool, popsize, sym, outtype, maxdepth):
-	async = pool.map_async(random_expr, [(sym, outtype, maxdepth) for _ in range(0, popsize)])
-	population = async.get()
+def random_pop(pool, popsize, sym, outtype, maxdepth, dist):
+	if UsePool:
+		population = pool.map(random_expr, [(sym, outtype, maxdepth, dist) for _ in range(0, popsize)])
+	else:
+		population = [random_expr((sym, outtype, maxdepth, dist)) for _ in range(0, popsize)]
 	return population
 
 def fit_tuple1(d, res):
@@ -1129,11 +1282,14 @@ class Evolve:
 		assert type(data) == list
 		assert type(data[0]) == tuple
 		assert len(data[0]) == 2
-		self.data = data
 		if types == None:
 			self.intype,self.outtype = Type.describe(data[0])
 		else:
 			self.intype,self.outtype = types
+		self.sym = (Variable(self.intype, 'foo'),)
+		self.data = data
+		print(Value.type_dist([d[0] for d in self.data]))
+
 	def setFitness(self, fitness):
 		self.fitness = fitness
 
@@ -1158,17 +1314,19 @@ class Evolve:
 
 	def _evolve(self):
 		# initialize defaults
-		sym = (Variable(self.intype, 'foo'),)
 		gentotal = 0
 		gencnt = 0
 		pop = []
 		r = Reporter()
 		globals()['Data'] = self.data # set to global
 		assert len(Data) == len(self.data)
-		pool = mp.Pool(mp.cpu_count())
+		pool = None
+		if UsePool:
+			pool = mp.Pool(mp.cpu_count())
+		dist = Value.type_dist([d[0] for d in self.data])
 
 		while pop == []:
-			population = random_pop(pool, self.popsize, sym, self.outtype, self.maxdepth)
+			population = random_pop(pool, self.popsize, self.sym, self.outtype, self.maxdepth, dist)
 			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
 			pop = [FamilyMember(ks, None) for ks in keep]
 			r.show(pop, gencnt, gentotal)
@@ -1180,14 +1338,15 @@ class Evolve:
 		while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 			parent = random.choice(pop)
 			maxd = min(self.maxdepth, int(2+math.log(gentotal+1)))
-			population = mutate_pop(pool, parent.ks.expr, self.popsize, maxd)
+			population = mutate_pop(pool, parent.ks.expr, self.popsize, maxd, dist)
 			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
 			pop, gencnt = self._postGen(pop, keep, parent, gencnt)
 			r.show(pop, gencnt, gentotal)
 			gencnt += 1
 			gentotal += 1
 		print('\ndone', pop[0])
-		pool.close()
+		if UsePool:
+			pool.close()
 		self._saveExpr(pop[0])
 		return pop[0]
 
@@ -1230,7 +1389,8 @@ class Evolve:
 	when we evolve a better Expr, save it to the database
 	"""
 	def _saveExpr(self, ft):
-		print('saveExpr(%s)' % (pickle.dumps(ft.ks.expr)))
+		#print('saveExpr(%s)' % (pickle.dumps(ft.ks.expr)))
+		pass
 
 	"""
 	cleanup
@@ -1241,6 +1401,7 @@ class Evolve:
 if __name__ == '__main__':
 	test()
 
+	"""
 	e = Evolve()
 	e.setData([
 			# expect: foo
@@ -1248,15 +1409,62 @@ if __name__ == '__main__':
 			(1e6, 1e6),
 		])
 	e.solve(popsize=400)
+	"""
 
 	e = Evolve()
-	e.setData([ # ensure we can produce tuple results
+	e.setData([	# ensure we handle (Num,[(Num,Num,Num)])
+			# expect: foo[0]*sum([x[0]+x[1]+x[2] for x in foo[1]])
+			((5,[(0,0,0),(0,0,0)]), 0),
+			((2,[(1,1,1),(0,0,0)]), 6),
+			((1,[(1,2,3),(1,2,3)]), 12),
+			((2,[(3,1,2),(3,2,1)]), 24),
+			((3,[(0,5,0),(3,4,3)]), 45),
+			((5,[(0,0,0),(3,4,3)]), 50),
+		])
+	e.solve(maxdepth=7)
+
+	e = Evolve()
+	e.setData([	# ensure we handle ([(Num,Num,Num)])
+			# expect: sum([x[0]+x[1]+x[2] for x in foo[0]])
+			(([(0,0,0),(0,0,0)],), 0),
+			(([(1,1,1),(0,0,0)],), 3),
+			(([(1,2,3),(1,2,3)],), 12),
+			(([(3,1,2),(3,2,1)],), 12),
+			(([(0,5,0),(3,4,3)],), 15),
+			(([(0,0,0),(3,4,3)],), 10),
+		])
+	e.solve(maxdepth=7)
+
+	e = Evolve()
+	e.setData([	# ensure we can produce tuple results
 			# expect: (foo,)
 			(100, (100,)),
 			(1000, (1000,)),
 		])
 	e.setFitness(fit_tuple1)
 	e.solve(popsize=1000, maxdepth=3)
+
+	e = Evolve()
+	e.setData([
+			# use datetime
+			# expect: foo.year >= 2000
+			(datetime(1900,1,1), False),
+			(datetime(1995,1,1), False),
+			(datetime(1996,1,1), False),
+			(datetime(1997,1,1), False),
+			(datetime(1998,1,1), False),
+			(datetime(1999,1,1), False),
+			(datetime(2001,1,1), True),
+			(datetime(2002,1,1), True),
+			(datetime(2003,1,1), True),
+			(datetime(2004,1,1), True),
+			(datetime(2005,1,1), True),
+			(datetime(2006,1,1), True),
+		])
+	#e.setFitness(func)
+	e.solve(deadend=50) #even if we're in the database, start a new tree
+	#e.continue(db='evolve.db', popsize=10000, maxdepth=5) # try to load from database or start fresh
+	#e.simplify(Limit('10 hours')) # evolve, but only to simpler forms, for 10 wallclock hours
 
 	e = Evolve()
 	e.setData( [
@@ -1344,25 +1552,14 @@ if __name__ == '__main__':
 
 	e = Evolve()
 	e.setData([
-			# use datetime
-			# expect: foo.year >= 2000
-			(datetime(1900,1,1), False),
-			(datetime(1995,1,1), False),
-			(datetime(1996,1,1), False),
-			(datetime(1997,1,1), False),
-			(datetime(1998,1,1), False),
-			(datetime(1999,1,1), False),
-			(datetime(2001,1,1), True),
-			(datetime(2002,1,1), True),
-			(datetime(2003,1,1), True),
-			(datetime(2004,1,1), True),
-			(datetime(2005,1,1), True),
-			(datetime(2006,1,1), True),
+			# use or
+			# expect: foo[0] or foo[1]
+			([(True,True)], True),
+			([(True,False)], True),
+			([(False,True)], True),
+			([(False,False)], False),
 		])
-	#e.setFitness(func)
-	e.solve(popsize=10000, maxdepth=5) #even if we're in the database, start a new tree
-	#e.continue(db='evolve.db', popsize=10000, maxdepth=5) # try to load from database or start fresh
-	#e.simplify(Limit('10 hours')) # evolve, but only to simpler forms, for 10 wallclock hours
+	e.solve(maxdepth=6, popsize=5000)
 
 	"""
 	evolve( [
@@ -1376,7 +1573,8 @@ if __name__ == '__main__':
 		])
 	"""
 
-	evolve( [
+	e = Evolve()
+	e.setData([
 			# combine reduce() and min()
 			# expect: reduce(lambda x,y:min(x,y), foo, 1)
 			# got: reduce(lambda x,y: min(x,y), foo, 5)
@@ -1385,17 +1583,21 @@ if __name__ == '__main__':
 			([2,3,1], 1),
 			([2,1,3], 1),
 			([100,10,5], 5),
-		], popsize=1000)
+		])
+	e.solve(popsize=1000)
 
 	################ Beyond this point stuff doesn't work
 
 	# FIXME: broken?
-	evolve( [ # extract tuple members and re-wrap them
+	e = Evolve()
+	e.setFitness(fit_list1)
+	e.setData([ # extract tuple members and re-wrap them
 			# expect: (foo[0]+1, foo[0]+foo[0]+2)
 			# got: ((foo[0] + 1), (2 + (foo[0] + foo[0])))
 			((100,), (101,202)),
 			((1000,), (1001,2002)),
-		], fitness=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
+		])
+	e.solve()#, fitness=lambda d,res:sum(abs(x-y) for x,y in zip(d[1],res)))
 
 	"""
 	evolve( [
@@ -1405,3 +1607,4 @@ if __name__ == '__main__':
 			([[1,2,3]], [1,2,3]),
 		], popsize=1000, fitness=lambda d,res: sum([abs(x-y) for x,y in zip(d[1], res)]) + (1e6 * abs(len(d[1]) - len(res))))
 	"""
+
