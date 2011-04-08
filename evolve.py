@@ -1327,6 +1327,11 @@ class Evolve:
 			self._loadTree()
 		self._evolve()
 
+	
+	def _scale_maxdepth(self, gentotal=0):
+		maxd = min(self.maxdepth, int(2 + log(gentotal+1)))
+		return maxd
+
 	def _evolve(self):
 		# initialize defaults
 		gentotal = 0
@@ -1341,7 +1346,7 @@ class Evolve:
 		dist = Value.type_dist([d[0] for d in self.data])
 
 		while pop == []:
-			population = random_pop(pool, self.popsize, self.sym, self.outtype, self.maxdepth, dist)
+			population = random_pop(pool, self.popsize, self.sym, self.outtype, self._scale_maxdepth(gentotal), dist)
 			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
 			pop = [FamilyMember(ks, None) for ks in keep]
 			r.show(pop, gencnt, gentotal)
@@ -1352,8 +1357,7 @@ class Evolve:
 		# TODO: i think i should iterate from [1..maxdepth] to isolate the most important factor for each depth.
 		while pop[0].ks.score > 0 or (pop[0].ks.invarcnt > 0 and gencnt <= pop[0].ks.gencnt + pop[0].ks.size + pop[0].ks.invarcnt):
 			parent = random.choice(pop)
-			maxd = min(self.maxdepth, int(2+math.log(gentotal+1)))
-			population = mutate_pop(pool, parent.ks.expr, self.popsize, maxd, dist)
+			population = mutate_pop(pool, parent.ks.expr, self.popsize, self._scale_maxdepth(gentotal), dist)
 			keep = evaluate(pool, population, pop, self.fitness, gencnt)[:self.popkeep]
 			pop, gencnt = self._postGen(pop, keep, parent, gencnt)
 			r.show(pop, gencnt, gentotal)
