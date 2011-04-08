@@ -1417,8 +1417,14 @@ class Evolve:
 	def __del__(self):
 		pass
 
+# set our processes' priority as low as possible so we don't hog the CPU
+def lower_priority():
+	if os.name == 'posix':
+		os.system('renice +20 %d' % (os.getpid(),))
+
 if __name__ == '__main__':
 	test()
+	lower_priority()
 
 	"""
 	e = Evolve()
