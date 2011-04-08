@@ -386,7 +386,7 @@ class Op:
 	def inTypesMatch(self, availableTypes):
 		# FIXME: i'm cheating to match any list-taking functions, since we know that map/filter can xform anything
 		islist = any(type(a) == list for a in availableTypes)
-		return (islist and self.name in ('map','filter','sum','len')) or list_intersect(self.inset, availableTypes) == self.inset
+		return (islist and self.name in OpListInputNames) or list_intersect(self.inset, availableTypes) == self.inset
 	@staticmethod
 	def copy(op):
 		if op.name in ('gte','len','map','filter','reduce'):
@@ -488,6 +488,11 @@ Ops = (
 	#Op('stddev', 	Type.NUM,	([Type.NUM],),		lambda x:    'stddev(%s)' % (x,)),
 )
 OpOuttypes = [Type.BOOL,Type.NUM]#,[Type.A],[Type.B]]#,Type.B]
+
+OpListInput = tuple(o for o in Ops if any(type(p) == list for p in o.intype))
+OpListInputNames = tuple(o.name for o in OpListInput)
+assert 'map' in OpListInputNames
+assert 'filter' in OpListInputNames
 
 OpOuttypeDict = {} # cache Op outtype lookup
 def ops_by_outtype(outtype):
