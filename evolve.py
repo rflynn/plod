@@ -781,6 +781,14 @@ class Expr(Value):
 			elif v == 'False':
 				# filter(False, x) -> []
 				self.op, self.exprs = Id, [Value(self.exprs[1].type, [])]
+			else:
+				# [x for x in [] if ...] -> []
+				e1 = self.exprs[1]
+				if type(e1) == Expr and e1.op is Id:
+					if type(e1.exprs[0]) == Expr and e1.exprs[0] == []:
+						self = e1
+					elif type(e1.exprs[0]) == Value and e1.exprs[0].val == []:
+						self = e1
 		elif self.op.name in ('add','sub','mul','div','mod'):
 			try:
 				# try to reduce numerical expressions
