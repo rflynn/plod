@@ -646,7 +646,7 @@ class Expr(Value):
 	# it is important to potentially preserve existing Exprs because only high-scoring Exprs get mutated, so what we have
 	# isn't too bad in the first place. we must be able to move Expr between levels, replacing operations with their parameters
 	# and vice versa, replacing random invariants
-	def mutate(self, maxdepth, depth, dist=None):
+	def mutate(self, maxdepth, depth=1, dist=None):
 		mutation = 0.8
 		r = random.random()
 		if r < mutation: # mutate self
@@ -1244,7 +1244,7 @@ def evaluate(pool, population, pop, fitness, gencnt):
 # given an existing Expr e, generate a random mutation
 def mutate_expr(params):
 	e, maxdepth, dist = params
-	return e.mutate(maxdepth, 1, dist=dist)
+	return e.mutate(maxdepth, dist=dist)
 
 def mutate_pop(pool, parent, popsize, maxdepth, dist):
 	if UsePool:
