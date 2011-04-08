@@ -810,9 +810,11 @@ class Expr(Value):
 					elif '0' in (e0,e1):
 						self.op, self.exprs = Id, [Value(self.type, 0)]
 				elif self.op.name == 'div':
-					if e1 == '1':
+					if e1 == '1': # x/1 -> x
 						p = 0
-					elif e0 == e1:
+					elif e0 == '0': # 0/x -> 0
+						p = 0
+					elif e0 == e1: # x/x -> 1
 						self.op, self.exprs = Id, [Value(self.type, 1)]
 				elif self.op.name == 'mod':
 					if e0 == e1 or e1 == '1':
