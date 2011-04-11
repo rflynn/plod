@@ -40,6 +40,7 @@ from math import sqrt,log
 from test import unittest # custom
 from functools import reduce
 from datetime import datetime # we need a datetime type for real-world data
+import os
 
 class Type:
 	A     = 0 # TypeVar
