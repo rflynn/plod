@@ -1344,7 +1344,7 @@ class Evolve:
 
 	
 	def _scale_maxdepth(self, gentotal=0):
-		maxd = min(self.maxdepth, int(2 + log(gentotal+1)))
+		maxd = min(self.maxdepth, 3+sqrt(gentotal))
 		return maxd
 
 	def _evolve(self):
