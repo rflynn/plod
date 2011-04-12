@@ -409,10 +409,15 @@ def id_str(x):
 	except:
 		pass
 	return s
+
+def if_str(x,y,z):
+	return '(%s if %s else %s)' % (y,x,z)
 def gte_str(x,y):
 	return '(%s >= %s)' % (x,y)
 def add_str(x,y):
 	return '(%s + %s)' % (x,y)
+def sub_str(x,y):
+	return '(%s - %s)' % (x,y)
 def mul_str(x,y):
 	return '(%s * %s)' % (x,y)
 def div_str(x,y):
@@ -431,10 +436,14 @@ def sum_str(x):
 	return 'sum(%s)' % (x,)
 def map_str(x,y):
 	return '[%s for %s in %s]' % (x,','.join(x.op.paramkeys),y)
-def filter_str(x,y):
-	return '[%s for %s in %s if %s]' % (','.join(x.op.paramkeys),','.join(x.op.paramkeys),y,x)
+def filter_str(x,y,z):
+	return '[%s for %s in %s if %s]' % (z,','.join(z.op.paramkeys),y,x)
 def reduce_str(x,y,z):
 	return 'reduce(lambda %s: %s, %s, %s)' % (','.join(x.op.paramkeys),x,y,z)
+def any_str(x):
+	return 'any(%s)' % (x,)
+def all_str(x):
+	return 'all(%s)' % (x,)
 
 # id(x) -> x. used to wrap a Value/Variable in an Expr
 Id = Op('id', Type.A, (Type.A,), id_str)
@@ -444,12 +453,12 @@ Ops = (
 	#Op('not', Type.BOOL,	(Type.BOOL,),			lambda x:    '(not %s)' % (x,)),
 	#Op('or',  Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s or %s)' % (x,y)),
 	#Op('and', Type.BOOL,	(Type.BOOL, Type.BOOL),		lambda x,y:  '(%s and %s)' % (x,y)),
-	#Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	lambda x,y,z:'(%s if %s else %s)' % (y,x,z)),
+	Op('if',  Type.A,	(Type.BOOL, Type.A, Type.A),	if_str),
 	#Op('eq',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s == %s)' % (x,y)),
 	#Op('gt',  Type.BOOL,	(Type.A,   Type.A),		lambda x,y:  '(%s > %s)' % (x,y)),
 	Op('gte', Type.BOOL,	(Type.A,   Type.A),		gte_str),
-	Op('add', Type.NUM,	(Type.NUM, Type.NUM),		add_str),
-	#Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		lambda x,y:  '(%s - %s)' % (x,y)),
+	#Op('add', Type.NUM,	(Type.NUM, Type.NUM),		add_str),
+	Op('sub', Type.NUM,	(Type.NUM, Type.NUM),		sub_str),
 	Op('mul', Type.NUM,	(Type.NUM, Type.NUM),		mul_str),
 	Op('div', Type.NUM,	(Type.NUM, Type.NUM),		div_str),
 	# pow is a CPU sink. whereas all other functions produce output lte their parameters,
@@ -464,7 +473,7 @@ Ops = (
 	Op('len', Type.NUM,	([Type.A],),			len_str),
 	Op('sum', Type.NUM,	([Type.NUM],),			sum_str),
 	Op('map', [Type.B],	((Type.FUN,Type.B,(Type.A,)), [Type.A]),	map_str),
-	Op('filter', [Type.A],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A]),	filter_str),
+	#Op('filter', [Type.B],	((Type.FUN,Type.BOOL,(Type.A,)), [Type.A], (Type.FUN,Type.B,(Type.A,))),	filter_str),
 
 	# reduce is a tricky function because it requires a list of len() >= 2
 	# most of the code that is generated with it, as it is, is bogus
@@ -854,11 +863,15 @@ class Expr(Value):
 		elif self.op.name == 'if':
 			# if(True,x,y) -> x
 			# if(False,x,y) -> y
-			v = self.exprs[0].invariant_val()
-			if v == True:
+			v = str(self.exprs[0])
+			if v == 'True':
 				self = self.exprs[1]
-			elif v == False:
+			elif v == 'False':
 				self = self.exprs[2]
+			else:
+				# if(x,True,False) -> x
+				if str(self.exprs[1]) == 'True' and str(self.exprs[2]) == 'False':
+					self = self.exprs[0]
 		elif self.op.name in ('or','and'):
 			# x or x -> x
 			# x and x -> x
