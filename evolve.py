@@ -377,7 +377,7 @@ class Op:
 		self.type = outtype
 		self.intype = intype
 		self.repr = repr
-		# TODO: we can greatly simplify Expr by pre-calculating a bunch of stuff here, also globally about Ops
+		self.is_tv = Type.typevars(intype) != []
 		self.outset = Type.listreal(outtype)
 		self.inset = Type.listreal(intype)
 	def __repr__(self):
@@ -389,7 +389,7 @@ class Op:
 		return (islist and self.name in OpListInputNames) or list_intersect(self.inset, availableTypes) == self.inset
 	@staticmethod
 	def copy(op):
-		if op.name in ('gte','len','map','filter','reduce'):
+		if op.is_tv:
 			# these ops have TypeVars in their signatures which require them to be modified
 			x = copy.copy(op)
 			x.type = copy.deepcopy(x.type)
@@ -491,8 +491,6 @@ OpOuttypes = [Type.BOOL,Type.NUM]#,[Type.A],[Type.B]]#,Type.B]
 
 OpListInput = tuple(o for o in Ops if any(type(p) == list for p in o.intype))
 OpListInputNames = tuple(o.name for o in OpListInput)
-assert 'map' in OpListInputNames
-assert 'filter' in OpListInputNames
 
 OpOuttypeDict = {} # cache Op outtype lookup
 def ops_by_outtype(outtype):
@@ -634,12 +632,13 @@ class Expr(Value):
 
 			self.op = Op.copy(random.choice(okops))
 
-			if Debug:
-				print('  before self.op=',self.op,'outtype=',Type.repr(outtype))
-			tvtypes = self.enforceTypeVars(outtype, availableTypes)
-			if Debug:
-				print('  after self.op=',self.op,'outtype=',Type.repr(outtype),'tvtypes=',tvtypes)
-			assert self.op.type == outtype
+			if self.op.is_tv:
+				if Debug:
+					print('  before self.op=',self.op,'outtype=',Type.repr(outtype))
+				tvtypes = self.enforceTypeVars(outtype, availableTypes)
+				if Debug:
+					print('  after self.op=',self.op,'outtype=',Type.repr(outtype),'tvtypes=',tvtypes)
+				assert self.op.type == outtype
 			self.exprs = [Expr(params, it, maxdepth, depth+1, dist=dist) for it in self.op.intype]
 
 	# randomly mutate Expr and/or sub-expressions
