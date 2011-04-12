@@ -1134,7 +1134,7 @@ def run_score(params):
 				break # short-circuit upon poor score, speeds up large data
 	except (ZeroDivisionError, ValueError):
 		# ZeroDiv: /0 or %0
-		# ValueError: log(0)
+		# ValueError: log(0), sqrt(-1)
 		score = WorstScore
 	except (TypeError,AttributeError) as e:
 		#print('%s: %s' % (e, estr))
