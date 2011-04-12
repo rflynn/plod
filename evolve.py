@@ -609,7 +609,7 @@ class Expr(Value):
 			if (pt == () or r < depth / maxdepth / 10) and Type.can_literal(outtype):
 				if Type.is_scalar(outtype):
 					if dist:
-						self.exprs = [Value(outtype, dist[outtype].random())]
+						self.exprs = [Value(outtype, dist[outtype].random(outtype))]
 					else:
 						self.exprs = [Value(outtype)] # random literal
 				elif type(outtype) == tuple: # tuple literal
