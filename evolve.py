@@ -41,6 +41,7 @@ from test import unittest # custom
 from functools import reduce
 from datetime import datetime # we need a datetime type for real-world data
 import os
+import collections
 
 class Type:
 	A     = 0 # TypeVar
@@ -250,32 +251,30 @@ def test_type_listreal():
 """
 Distribution: Value x Data
 Compile statistical information about our input so as to generate more useful Exprs
-TODO: use a set() if values only appear once; i assume it'll use less memory
+TODO: hmm, i could even condense into range()...
 """
 class Dist:
 	def __init__(self, l=[]):
-		self.val = {}
+		self.val, self.min, self.max = set(), None, None
 		if l != [] and type(l[0]) != list:
-			for v in l:
-				try:
-					self.val[v] += 1
-				except KeyError:
-					self.val[v] = 1
-		k = self.val.keys()
-		try:
-			self.min = min(k)
-		except ValueError:
-			self.min = None
-		try:
-			self.max = max(k)
-		except ValueError:
-			self.max = None
-	def random(self):
+			self.val = set(l)
+			if len(self.val) != len(l):
+				# one or more values appears more than once, use a dict
+				self.val = collections.Counter(l)
+				k = self.val.keys()
+			self.min, self.max = min(self.val), max(self.val)
+	def keys(self):
+		if isinstance(self.val, dict):
+			return self.val.keys()
+		elif isinstance(self.val, set):
+			return list(self.val)
+	def random(self, type=None):
 		if self.val:
-			return random.choice(list(self.val.keys()))
-		return 2
+			return random.choice(list(self.keys()))
+		return Value.randomval(type)
 	def __repr__(self):
-		return 'Dist(min=%s max=%s keys=%s val=%s)' % (self.min, self.max, self.val.keys(), self.val)
+		return 'Dist(min=%s max=%s keys=%s val=%s)' % \
+			(self.min, self.max, list(self.keys()), self.val)
 
 # un-named invariant type:value pair.
 # only used directly for generating the occasional random scalar value
