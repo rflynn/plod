@@ -223,7 +223,9 @@ class Type:
 	def calculateReplacement(t, tv):
 		if Type.is_typevar(tv):
 			return t
-		assert type(t) == type(tv)
+		if type(t) != type(tv):
+			print('%s != %s' % (Type.repr(t), Type.repr(tv)))
+			assert False
 		if type(tv) in (tuple,list):
 			return Type.calculateReplacement(t[0], tv[0])
 
