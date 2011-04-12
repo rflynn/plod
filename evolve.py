@@ -1259,7 +1259,8 @@ def mutate_pop(pool, parent, popsize, maxdepth, dist):
 	if UsePool:
 		population = pool.map(mutate_expr, [(parent, maxdepth, dist) for _ in range(0, popsize)])
 	else:
-		population = [mutate_expr((copy.deepcopy(parent), maxdepth, dist)) for _ in range(0, popsize)]
+		p = pickle.dumps(parent)
+		population = [mutate_expr((pickle.loads(p), maxdepth, dist)) for _ in range(0, popsize)]
 	return population
 
 def random_expr(params):
