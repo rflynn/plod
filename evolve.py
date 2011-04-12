@@ -1106,9 +1106,9 @@ Data = []
 
 # run Expr e(data), score the result
 def run_score(params):
-	#estr, data, fitness, worstscore, p = params
 	estr, fitness, worstscore, p = params
-	fn = eval('lambda foo:' + estr)
+	#print(estr)
+	fn = eval('lambda x:' + estr)
 	try:
 		score = 0
 		for d in globals()['Data']:
@@ -1301,7 +1301,7 @@ class Evolve:
 			self.intype,self.outtype = Type.describe(data[0])
 		else:
 			self.intype,self.outtype = types
-		self.sym = (Variable(self.intype, 'foo'),)
+		self.sym = (Variable(self.intype, 'x'),)
 		self.data = data
 		print(Value.type_dist([d[0] for d in self.data]))
 
