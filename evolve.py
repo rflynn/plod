@@ -296,7 +296,7 @@ class Value:
 	def randomval(type, val=None):
 		if type == Type.NUM:
 			#return random.randint(1,2)
-			return round(abs(random.gauss(0,50)))
+			return round(abs(random.gauss(0,10)))
 		elif type == Type.BOOL:
 			return random.randint(0,1) == 0
 		else:
