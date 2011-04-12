@@ -848,7 +848,7 @@ class Expr(Value):
 					elif e1 < e0:
 						# sort parameters alphabetically
 						self.exprs[0], self.exprs[1] = self.exprs[1], self.exprs[0]
-		elif self.op.name in ('eq','gte','gte'):
+		elif self.op.name in ('eq','gte'):
 			# x == x -> True
 			# x <= x -> True
 			# x >= x -> True
